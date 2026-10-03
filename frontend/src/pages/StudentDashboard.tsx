@@ -942,9 +942,9 @@ const StudentDashboard: React.FC = () => {
               color: '#fff',
             }}
           >
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }} justifyContent="space-between">
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ alignItems: { xs: 'flex-start', md: 'center' }, justifyContent: 'space-between' }}>
               <Box>
-                <Stack direction="row" spacing={1.5} alignItems="center" mb={1}>
+                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1 }}>
                   <CalendarMonthIcon sx={{ fontSize: 32, color: '#a5b4fc' }} />
                   <Typography variant="h5" sx={{ fontWeight: 900, color: '#f8fafc' }}>
                     {monthlyTestData?.title || 'October 2026 Monthly Board Examination'}
@@ -954,7 +954,7 @@ const StudentDashboard: React.FC = () => {
                   Organised by Teachers &amp; AI Curriculum Engine • Strict NCERT Step-Marking • Real-time class rank impact
                 </Typography>
                 {/* ── Class & Subject Selector ── */}
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} mt={1.5} flexWrap="wrap" alignItems="center">
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   <FormControl size="small" sx={{ minWidth: 120 }}>
                     <Select
                       value={selectedClass}
@@ -1240,8 +1240,8 @@ const StudentDashboard: React.FC = () => {
         onClose={() => setMonthlyTestOpen(false)}
         maxWidth="md"
         fullWidth
-        PaperProps={{
-          sx: { borderRadius: 3.5, p: 1 },
+        slotProps={{
+          paper: { sx: { borderRadius: 3.5, p: 1 } },
         }}
       >
         <DialogTitle sx={{ pb: 1, borderBottom: '1px solid #e2e8f0' }}>
@@ -1271,7 +1271,7 @@ const StudentDashboard: React.FC = () => {
                   textAlign: 'center',
                 }}
               >
-                <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
+                <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', justifyContent: 'center' }}>
                   <TimerIcon sx={{ fontSize: 18, color: testTimeLeft < 300 ? '#dc2626' : '#2563eb' }} />
                   <Typography
                     variant="h6"
@@ -1416,7 +1416,7 @@ const StudentDashboard: React.FC = () => {
                     <Stack spacing={1.5}>
                       {monthlyTestResult.improvementRecommendations.map((rec: any, rIdx: number) => (
                         <Paper key={rIdx} elevation={0} sx={{ p: 2, bgcolor: '#ffffff', borderRadius: 2, border: '1px solid #fed7aa' }}>
-                          <Stack direction="row" spacing={1} alignItems="center" mb={0.5} justifyContent="space-between" flexWrap="wrap">
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5, justifyContent: 'space-between', flexWrap: 'wrap' }}>
                             <Chip label={`Q${rec.questionNumber} Weakness`} size="small" color="warning" sx={{ fontWeight: 800 }} />
                             {rec.sourceLink && (
                               <Chip

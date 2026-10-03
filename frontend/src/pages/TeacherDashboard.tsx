@@ -276,7 +276,7 @@ const TeacherDashboard: React.FC = () => {
         difficulty: newTestDifficulty || 'all',
         numQuestions: newTestNumQuestions || 4,
         hintsEnabled: newTestHintsEnabled !== undefined ? newTestHintsEnabled : true,
-        organizedBy: 'AI Curriculum Engine (Arihant & CBSE Guidelines)',
+        organizer: 'AI Curriculum Engine (Arihant & CBSE Guidelines)',
         syllabus: newTestSyllabus || 'Core Board Curriculum & Arihant Concept Mastery',
       });
       const testObj = res?.data?.test || res?.data;
@@ -310,7 +310,7 @@ const TeacherDashboard: React.FC = () => {
         difficulty: newTestDifficulty || 'all',
         numQuestions: newTestNumQuestions || 4,
         hintsEnabled: newTestHintsEnabled !== undefined ? newTestHintsEnabled : true,
-        organizedBy: 'Faculty Examination Board (Arihant Guidelines)',
+        organizer: 'Faculty Examination Board (Arihant Guidelines)',
         syllabus: (newTestSyllabus && newTestSyllabus.trim()) || 'Core Board Curriculum',
       });
       const testObj = res?.data?.test || res?.data;
@@ -1096,7 +1096,7 @@ const TeacherDashboard: React.FC = () => {
               </Typography>
             </Box>
 
-            <Stack direction="row" spacing={1.5} flexWrap="wrap" alignItems="center">
+            <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
               {/* Quick Class & Subject Selector */}
               <Select
                 size="small"
@@ -1109,7 +1109,7 @@ const TeacherDashboard: React.FC = () => {
                     targetSubj = 'physics';
                     setNewTestSubject('physics');
                   }
-                  examPrepAPI.getMonthlyTest(cl, targetSubj).then(res => {
+                  examPrepAPI.getMonthlyTest(cl, targetSubj).then((res: any) => {
                     if (res?.data?.test) setMonthlyTest(res.data.test);
                   });
                 }}
@@ -1127,7 +1127,7 @@ const TeacherDashboard: React.FC = () => {
                 onChange={(e) => {
                   const sub = e.target.value;
                   setNewTestSubject(sub);
-                  examPrepAPI.getMonthlyTest(newTestClass, sub).then(res => {
+                  examPrepAPI.getMonthlyTest(newTestClass, sub).then((res: any) => {
                     if (res?.data?.test) setMonthlyTest(res.data.test);
                   });
                 }}
@@ -1400,7 +1400,7 @@ const TeacherDashboard: React.FC = () => {
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Stack direction="row" spacing={1} alignItems="center">
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                             <Chip
                               label={`${fb.totalMarksEarned} / ${fb.maxMarks}m`}
                               size="small"
