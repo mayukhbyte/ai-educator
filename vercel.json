@@ -6,13 +6,6 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/index" }
   ],
-  "functions": {
-    "api/index.js": {
-      "runtime": "nodejs20.x",
-      "maxDuration": 30,
-      "includeFiles": "backend/**"
-    }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
