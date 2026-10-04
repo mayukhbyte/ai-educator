@@ -90,9 +90,40 @@ const DoubtSolving: React.FC = () => {
       question: 'How do plants convert sunlight into food during photosynthesis?',
       answer: '6CO₂ + 6H₂O + Sunlight → C₆H₁₂O₆ (Glucose) + 6O₂. Chlorophyll absorbs light energy and splits water into hydrogen and oxygen.',
       level: 'basic',
-      timestamp: 'Yesterday',
-    },
+      timestamp: 'Yesterday'
+    }
   ]);
+
+  // Helper function to convert YouTube URL to embed format
+  const convertYouTubeUrlToEmbed = (url: string | undefined): string | undefined => {
+    if (!url) return undefined;
+
+    // Handle youtu.be/VIDEO_ID format
+    const youtuBeMatch = url.match(/^https?:\/\/(www\.)?youtu\.be\/([^?&]+)/);
+    if (youtuBeMatch) {
+      return `https://www.youtube.com/embed/${youtuBeMatch[2]}`;
+    }
+
+    // Handle youtube.com/watch?v=VIDEO_ID format
+    const watchMatch = url.match(/^https?:\/\/(www\.)?youtube\.com\/watch\?v=([^&]+)/);
+    if (watchMatch) {
+      return `https://www.youtube.com/embed/${watchMatch[2]}`;
+    }
+
+    // Handle youtube.com/v/VIDEO_ID format (older embed format)
+    const vMatch = url.match(/^https?:\/\/(www\.)?youtube\.com\/v\/([^&]+)/);
+    if (vMatch) {
+      return `https://www.youtube.com/embed/${vMatch[2]}`;
+    }
+
+    // If it's already an embed URL, return as-is
+    if (url.includes('youtube.com/embed/')) {
+      return url;
+    }
+
+    // If we can't parse it, return original (will likely fail but better than nothing)
+    return url;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -430,7 +461,7 @@ This question covers an important topic in Class ${classLevel} ${subject}. Let's
                   <CardContent sx={{ p: 2 }}>
                     <Box sx={{ position: 'relative', width: '100%', pt: '56.25%', mb: 2, borderRadius: 2, overflow: 'hidden', bgcolor: '#000' }}>
                       <iframe
-                        src={teacherVideo.videoUrl}
+                        src={convertYouTubeUrlToEmbed(teacherVideo.videoUrl)}
                         title={teacherVideo.title || 'Video Solution'}
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                         allowFullScreen
