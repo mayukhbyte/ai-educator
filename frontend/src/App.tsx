@@ -356,6 +356,7 @@ function App() {
     localStorage.removeItem('user_role');
     localStorage.removeItem('user_name');
     localStorage.removeItem('user_email');
+    localStorage.removeItem('user');
     localStorage.removeItem('student_id');
     checkAuth();
   };

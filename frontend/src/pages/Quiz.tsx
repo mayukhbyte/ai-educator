@@ -394,6 +394,7 @@ const Quiz: React.FC = () => {
               <MenuItem value={3}>3 Questions (Sprint)</MenuItem>
               <MenuItem value={5}>5 Questions (Standard)</MenuItem>
               <MenuItem value={10}>10 Questions (Full Test)</MenuItem>
+              <MenuItem value={15}>15 Questions (Intensive Bank)</MenuItem>
             </Select>
           </Grid>
         </Grid>
@@ -441,9 +442,26 @@ const Quiz: React.FC = () => {
           }}
         />
         <Chip
-          label={sourceTag === 'supabase-realtime' ? '🟢 Supabase Real-Time' : '🟡 Static Fallback'}
+          label={
+            sourceTag.includes('gemini-generated')
+              ? sourceTag.includes('supabase')
+                ? '🟣 Supabase + Gemini AI'
+                : '🟣 Gemini AI Generated'
+              : sourceTag.includes('openai')
+              ? sourceTag.includes('supabase')
+                ? '🟡 Supabase + OpenAI'
+                : '🟡 OpenAI Generated'
+              : sourceTag === 'supabase-realtime'
+              ? '🟢 Supabase Real-Time'
+              : '🔵 Static NCERT Bank'
+          }
           size="small"
           variant="outlined"
+          sx={{
+            borderColor: sourceTag.includes('gemini') ? '#9333ea' : sourceTag.includes('openai') ? '#f59e0b' : sourceTag === 'supabase-realtime' ? '#22c55e' : '#60a5fa',
+            color: sourceTag.includes('gemini') ? '#9333ea' : sourceTag.includes('openai') ? '#f59e0b' : sourceTag === 'supabase-realtime' ? '#22c55e' : '#60a5fa',
+            fontWeight: 700,
+          }}
         />
         {totalPool > 0 && (
           <Typography variant="caption" color="text.secondary">
@@ -471,13 +489,13 @@ const Quiz: React.FC = () => {
 
       {/* Content Body */}
       {loading ? (
-        <Card sx={{ p: 6, textAlign: 'center', borderRadius: 3.5 }}>
-          <CircularProgress size={48} thickness={4} />
-          <Typography variant="h6" sx={{ mt: 2, fontWeight: 700 }}>
-            Generating dynamic NCERT questions...
+        <Card sx={{ p: 6, textAlign: 'center', borderRadius: 3.5, background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)', color: '#fff' }}>
+          <CircularProgress size={52} thickness={4} sx={{ color: '#a855f7' }} />
+          <Typography variant="h6" sx={{ mt: 2, fontWeight: 700, color: '#f8fafc' }}>
+            🟣 Generating fresh NCERT questions with Gemini AI...
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Querying live Supabase education database for Class {classLevel}
+          <Typography variant="body2" sx={{ color: '#94a3b8', mt: 0.5 }}>
+            Class {classLevel} · {subject === 'all' ? 'All Subjects' : subject.charAt(0).toUpperCase() + subject.slice(1)} · {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)} difficulty
           </Typography>
         </Card>
       ) : quizFinished && submitResult ? (

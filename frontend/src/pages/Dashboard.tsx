@@ -79,6 +79,7 @@ const modules = [
 
 const Dashboard: React.FC = () => {
   const [backendHealth, setBackendHealth] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [aiServiceStatus, setAiServiceStatus] = useState('Checking AI services...');
 
   useEffect(() => {
     fetch('http://localhost:5000/health')
@@ -86,12 +87,19 @@ const Dashboard: React.FC = () => {
       .then((data) => {
         if (data.status === 'OK') {
           setBackendHealth('connected');
+          const providers = [
+            data.geminiConfigured && 'Gemini',
+            data.openaiConfigured && 'OpenAI',
+          ].filter(Boolean);
+          setAiServiceStatus(providers.length ? `${providers.join(' + ')} available` : 'No AI provider configured');
         } else {
           setBackendHealth('disconnected');
+          setAiServiceStatus('AI services unavailable');
         }
       })
       .catch(() => {
         setBackendHealth('disconnected');
+        setAiServiceStatus('AI services unavailable');
       });
   }, []);
 
@@ -132,7 +140,7 @@ const Dashboard: React.FC = () => {
                 }}
               />
               <Chip
-                label="OpenAI GPT-4o Ready"
+                label={aiServiceStatus}
                 size="small"
                 sx={{
                   backgroundColor: 'rgba(255, 255, 255, 0.2)',

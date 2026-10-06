@@ -3,349 +3,267 @@ const express = require('express');
 function studentRoutes(supabase, openai) {
   const router = express.Router();
 
-  // In-memory persistent history store for student submissions and chats
-  const studentSubmissionsStore = [
-    {
-      id: 'sub_101',
-      userId: 'student-user-1',
-      studentName: 'Aarav Sharma',
-      subject: 'Mathematics',
-      topic: 'Quadratic Equations & AP',
-      score: 4,
-      totalQuestions: 5,
-      percentage: 80,
-      correctness: '4 / 5 Correct (80%)',
-      weakTopics: ['Discriminant condition D < 0 (no real roots)'],
-      strongTopics: ['nth term of AP formula', 'Midpoint formula'],
-      classLevel: 10,
-      date: 'Today, 11:30 AM',
-      timestamp: new Date().toISOString(),
-    },
-    {
-      id: 'sub_102',
-      userId: 'student-user-1',
-      studentName: 'Aarav Sharma',
-      subject: 'Physics',
-      topic: 'Electricity & Light',
-      score: 3,
-      totalQuestions: 5,
-      percentage: 60,
-      correctness: '3 / 5 Correct (60%)',
-      weakTopics: ['Resistors in parallel formula (1/R_eq)', 'Sign convention for convex mirror'],
-      strongTopics: ['Ohm’s law V = IR'],
-      classLevel: 10,
-      date: 'Yesterday, 4:15 PM',
-      timestamp: new Date(Date.now() - 86400000).toISOString(),
-    },
-    {
-      id: 'sub_103',
-      userId: 'student-user-1',
-      studentName: 'Aarav Sharma',
-      subject: 'Chemistry',
-      topic: 'Acids, Bases & Salts',
-      score: 5,
-      totalQuestions: 5,
-      percentage: 100,
-      correctness: '5 / 5 Correct (100%)',
-      weakTopics: [],
-      strongTopics: ['pH scale range', 'Plaster of Paris formula', 'Neutralization'],
-      classLevel: 10,
-      date: '3 days ago',
-      timestamp: new Date(Date.now() - 259200000).toISOString(),
-    },
-    {
-      id: 'sub_104',
-      userId: 'student-user-1',
-      studentName: 'Aarav Sharma',
-      subject: 'Biology',
-      topic: 'Life Processes & Heart',
-      score: 4,
-      totalQuestions: 5,
-      percentage: 80,
-      correctness: '4 / 5 Correct (80%)',
-      weakTopics: ['Nephron Bowman capsule filtration'],
-      strongTopics: ['Left ventricle function', 'Photosynthesis dark reaction'],
-      classLevel: 10,
-      date: '4 days ago',
-      timestamp: new Date(Date.now() - 345600000).toISOString(),
-    },
-  ];
+  async function getSignedInStudentEmail(req, expectedEmail) {
+    const token = req.headers.authorization?.match(/^Bearer (.+)$/i)?.[1];
+    if (!token || !supabase) return { error: 'A signed-in student account is required.', status: 401 };
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user?.email) {
+      return { error: 'A valid signed-in student account is required.', status: 401 };
+    }
+    const email = data.user.email.trim().toLowerCase();
+    if (expectedEmail && expectedEmail !== email) {
+      return { error: 'You can only access your own student performance data.', status: 403 };
+    }
+    return { email };
+  }
 
-  // Benchmark peers in the class for dynamic leaderboard rank calculation
-  const benchmarkClassStudents = [
-    { rank: 1, name: 'Rohan Gupta', scoreAvg: 94, totalSolved: 48, accuracy: 94, badge: '🏆 Top Scholar' },
-    { rank: 2, name: 'Priya Patel', scoreAvg: 91, totalSolved: 44, accuracy: 91, badge: '🥈 High Achiever' },
-    { rank: 3, name: 'Aarav Sharma (You)', scoreAvg: 80, totalSolved: 20, accuracy: 80, badge: '⭐ Rising Star' },
-    { rank: 4, name: 'Neha Verma', scoreAvg: 78, totalSolved: 35, accuracy: 78, badge: '📈 Steady Improver' },
-    { rank: 5, name: 'Kabir Singh', scoreAvg: 72, totalSolved: 30, accuracy: 72, badge: '🎯 Board Focused' },
-    { rank: 6, name: 'Ananya Roy', scoreAvg: 68, totalSolved: 28, accuracy: 68, badge: '📚 Active Learner' },
-  ];
-
-  // Helper to calculate rank & performance metrics
-  async function computeStudentMetrics(userId) {
-    let submissions = studentSubmissionsStore.filter(s => s.userId === userId || userId === 'student-user-1' || userId === 'demo-user');
-
-    // Also check Supabase 'train' table for additional historical records
-    if (supabase) {
-      try {
-        const { data: dbRecords } = await supabase
-          .from('train')
-          .select('*')
-          .ilike('source', `%${userId}%`)
-          .limit(20);
-
-        if (dbRecords && dbRecords.length > 0) {
-          dbRecords.forEach(r => {
-            if (!submissions.find(s => s.id === r.id)) {
-              submissions.push({
-                id: r.id || `sub_db_${Date.now()}`,
-                userId: userId,
-                subject: r.subject || 'General',
-                topic: r.topic || 'Quiz Performance',
-                score: Math.round((r.quality_score || 0.8) * 5),
-                totalQuestions: 5,
-                percentage: Math.round((r.quality_score || 0.8) * 100),
-                correctness: `${Math.round((r.quality_score || 0.8) * 5)} / 5 Correct (${Math.round((r.quality_score || 0.8) * 100)}%)`,
-                weakTopics: [],
-                strongTopics: [r.topic],
-                classLevel: r.class_level || 10,
-                date: 'Recent Assessment',
-                timestamp: r.created_at || new Date().toISOString(),
-              });
-            }
-          });
-        }
-      } catch (_) {}
+  async function getStudentMetrics(userEmail) {
+    if (!supabase) {
+      const error = new Error('Student assessment data is not configured.');
+      error.statusCode = 503;
+      throw error;
     }
 
-    const totalSubmissions = submissions.length || 4;
-    const totalScore = submissions.reduce((acc, s) => acc + (s.score || 0), 0);
-    const totalQuestions = submissions.reduce((acc, s) => acc + (s.totalQuestions || 5), 0);
-    const accuracy = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 80;
+    const { data: ownRows, error: ownError } = await supabase
+      .from('assessment_submissions')
+      .select('id, test_id, student_email, student_name, class_level, subject, score, max_marks, percentage, time_taken_seconds, teacher_feedback, submitted_at, result_data')
+      .eq('student_email', userEmail)
+      .order('submitted_at', { ascending: false });
+    if (ownError) throw ownError;
 
-    // Collect all weak topics identified from database submissions
-    const allWeakTopics = [];
-    const allStrongTopics = [];
-    const subjectStats = {
-      Mathematics: { total: 0, score: 0 },
-      Physics: { total: 0, score: 0 },
-      Chemistry: { total: 0, score: 0 },
-      Biology: { total: 0, score: 0 },
-    };
+    const roster = await supabase
+      .from('student_roster')
+      .select('class_level, status')
+      .eq('email', userEmail)
+      .maybeSingle();
+    if (roster.error) throw roster.error;
+    if (!roster.data) {
+      const error = new Error('Student roster record not found.');
+      error.statusCode = 404;
+      throw error;
+    }
+    if (roster.data.status !== 'active') {
+      const error = new Error('Student account is inactive.');
+      error.statusCode = 403;
+      throw error;
+    }
 
-    submissions.forEach(s => {
-      if (s.weakTopics && Array.isArray(s.weakTopics)) {
-        s.weakTopics.forEach(w => {
-          if (!allWeakTopics.includes(w)) allWeakTopics.push(w);
-        });
-      }
-      if (s.strongTopics && Array.isArray(s.strongTopics)) {
-        s.strongTopics.forEach(st => {
-          if (!allStrongTopics.includes(st)) allStrongTopics.push(st);
-        });
-      }
-      const subj = s.subject || 'General';
-      if (subjectStats[subj]) {
-        subjectStats[subj].total += s.totalQuestions || 5;
-        subjectStats[subj].score += s.score || 0;
-      }
-    });
+    const classLevel = roster.data.class_level;
+    const rows = (ownRows || []).filter(row => row.class_level === classLevel);
+    let classRows = rows;
+    if (classLevel) {
+      const [submissions, activeRoster] = await Promise.all([
+        supabase
+        .from('assessment_submissions')
+        .select('student_email, student_name, score, max_marks, percentage, time_taken_seconds, submitted_at, class_level')
+        .eq('class_level', classLevel),
+        supabase
+          .from('student_roster')
+          .select('email')
+          .eq('class_level', classLevel)
+          .eq('status', 'active'),
+      ]);
+      if (submissions.error) throw submissions.error;
+      if (activeRoster.error) throw activeRoster.error;
+      const activeEmails = new Set((activeRoster.data || []).map(student => student.email.toLowerCase()));
+      classRows = (submissions.data || []).filter(row => activeEmails.has(row.student_email.toLowerCase()));
+    }
 
-    // Calculate dynamic rank based on accuracy and total solved
-    let rank = 3;
-    if (accuracy >= 92) rank = 1;
-    else if (accuracy >= 85) rank = 2;
-    else if (accuracy >= 75) rank = 3;
-    else if (accuracy >= 65) rank = 4;
-    else rank = 5;
+    const studentScores = new Map();
+    for (const row of classRows) {
+      const key = row.student_email;
+      const score = studentScores.get(key) || {
+        name: row.student_name,
+        score: 0,
+        maxMarks: 0,
+        attempts: 0,
+        totalSeconds: 0,
+      };
+      score.score += Number(row.score) || 0;
+      score.maxMarks += Number(row.max_marks) || 0;
+      score.attempts += 1;
+      score.totalSeconds += Number(row.time_taken_seconds) || 0;
+      studentScores.set(key, score);
+    }
 
-    const totalClassStudents = 45;
-    const percentile = Math.min(99, Math.max(50, Math.round(((totalClassStudents - rank + 1) / totalClassStudents) * 100)));
+    const leaderboard = [...studentScores.entries()]
+      .map(([email, student]) => ({
+        email,
+        name: student.name,
+        scoreAvg: student.maxMarks ? Math.round((student.score / student.maxMarks) * 100) : 0,
+        totalSolved: student.attempts,
+        averageTimeSeconds: student.attempts ? Math.round(student.totalSeconds / student.attempts) : null,
+        accuracy: student.maxMarks ? Math.round((student.score / student.maxMarks) * 100) : 0,
+        badge: '',
+      }))
+      .sort((a, b) => {
+        const scoresA = studentScores.get(a.email);
+        const scoresB = studentScores.get(b.email);
+        const rawAverageA = scoresA.maxMarks ? scoresA.score / scoresA.maxMarks : 0;
+        const rawAverageB = scoresB.maxMarks ? scoresB.score / scoresB.maxMarks : 0;
+        return rawAverageB - rawAverageA ||
+          (a.averageTimeSeconds ?? Number.POSITIVE_INFINITY) - (b.averageTimeSeconds ?? Number.POSITIVE_INFINITY) ||
+          a.name.localeCompare(b.name);
+      })
+      .map((student, index) => ({ ...student, rank: index + 1 }));
 
-    // Generate AI Improvement Points based on DB performance
-    const improvementPoints = [
-      {
-        id: 1,
-        priority: 'High',
-        subject: 'Physics',
-        title: 'Master Resistors in Parallel (1/R_eq = 1/R₁ + 1/R₂ + ...)',
-        detail: 'In your Electricity submission, parallel resistance numericals had calculation errors. Practice 3-resistor combinations from NCERT Chapter 12.',
-        ncertChapter: 'NCERT Class 10 Science: Chapter 12 Electricity',
-        action: 'Review Page 214 of NCERT Science e-Book',
-        link: 'https://ncert.nic.in/textbook.php?jesc1=12-16',
-      },
-      {
-        id: 2,
-        priority: 'High',
-        subject: 'Physics',
-        title: 'Review Cartesian Sign Convention for Spherical Mirrors',
-        detail: 'Focal length of convex mirror is always positive (+f) and object distance is always negative (-u). Remember 1/f = 1/v + 1/u.',
-        ncertChapter: 'NCERT Class 10 Science: Chapter 10 Light Reflection & Refraction',
-        action: 'Solve Mirror Formula Examples 10.1 & 10.2',
-        link: 'https://ncert.nic.in/textbook.php?jesc1=10-16',
-      },
-      {
-        id: 3,
-        priority: 'Medium',
-        subject: 'Mathematics',
-        title: 'Solidify Quadratic Discriminant Nature of Roots',
-        detail: 'When D = b² - 4ac < 0, roots are non-real (imaginary). When D = 0, roots are real and equal. When D > 0, roots are real and distinct.',
-        ncertChapter: 'NCERT Class 10 Maths: Chapter 4 Quadratic Equations',
-        action: 'Practice Exercise 4.4 Questions 1 to 5',
-        link: 'https://ncert.nic.in/textbook.php?jemh1=4-15',
-      },
-      {
-        id: 4,
-        priority: 'Medium',
-        subject: 'Biology',
-        title: 'Revise Nephron Excretion & Ultrafiltration Mechanisms',
-        detail: 'Study the role of the Glomerulus, Bowman’s capsule, and tubular reabsorption of glucose, amino acids, and water in NCERT Chapter 6.',
-        ncertChapter: 'NCERT Class 10 Science: Chapter 6 Life Processes',
-        action: 'Examine Figure 6.14 Structure of a Nephron',
-        link: 'https://ncert.nic.in/textbook.php?jesc1=6-16',
-      },
-      {
-        id: 5,
-        priority: 'Low',
-        subject: 'General',
-        title: 'Daily 15-Minute Timed MCQ Routine',
-        detail: 'To jump from Rank #3 to Rank #1, complete 1 full randomized NCERT Quiz daily to boost response speed and board precision.',
-        ncertChapter: 'AI Educator Real-Time Quiz Portal',
-        action: 'Launch 5-Question Daily Speed Test',
-        link: '/quiz',
-      },
-    ];
+    const currentUser = leaderboard.find(student => student.email === userEmail);
+    const totalQuestionsAttempted = rows.reduce((total, row) => total + Number(row.max_marks || 0), 0);
+    const totalCorrectAnswers = rows.reduce((total, row) => total + Number(row.score || 0), 0);
+    const subjectTotals = new Map();
+    for (const row of rows) {
+      const subject = row.subject || 'Other';
+      const totals = subjectTotals.get(subject) || { score: 0, maxMarks: 0 };
+      totals.score += Number(row.score) || 0;
+      totals.maxMarks += Number(row.max_marks) || 0;
+      subjectTotals.set(subject, totals);
+    }
+
+    const weakTopics = [...new Set(rows.flatMap(row => row.result_data?.weakPoints || []))];
+    const strongTopics = [...new Set(rows.flatMap(row =>
+      (row.result_data?.stepAudit || [])
+        .filter(step => step.isCorrect)
+        .map(step => step.chapterReference)
+        .filter(Boolean)
+    ))];
+    const improvementPoints = rows.flatMap(row =>
+      (row.result_data?.improvementRecommendations || []).map((recommendation, index) => ({
+        id: `${row.id}-${index}`,
+        priority: 'Review',
+        subject: row.subject,
+        title: recommendation.topic,
+        detail: recommendation.advice,
+        ncertChapter: recommendation.topic,
+        action: 'Review the submitted assessment feedback.',
+        link: recommendation.sourceLink,
+      }))
+    );
 
     return {
-      rank,
-      totalClassStudents,
-      percentile,
-      accuracy,
-      totalQuestionsAttempted: totalQuestions,
-      totalCorrectAnswers: totalScore,
-      totalSubmissions,
-      leaderboard: benchmarkClassStudents.map(b => (b.rank === rank ? { ...b, scoreAvg: accuracy, accuracy } : b)),
-      weakTopics: allWeakTopics.length > 0 ? allWeakTopics : ['Parallel Resistors', 'Convex Mirror Sign Convention', 'Discriminant D < 0'],
-      strongTopics: allStrongTopics.length > 0 ? allStrongTopics : ['Acids & Bases pH', 'Ohm’s Law', 'AP nth term'],
+      rank: currentUser?.rank ?? null,
+      totalClassStudents: studentScores.size,
+      percentile: currentUser && studentScores.size
+        ? Math.round(((studentScores.size - currentUser.rank + 1) / studentScores.size) * 100)
+        : null,
+      accuracy: totalQuestionsAttempted
+        ? Math.round((totalCorrectAnswers / totalQuestionsAttempted) * 100)
+        : null,
+      totalQuestionsAttempted,
+      totalCorrectAnswers,
+      totalSubmissions: rows.length,
+      leaderboard: leaderboard.map(({ email, ...student }) => student),
+      weakTopics,
+      strongTopics,
       improvementPoints,
-      submissionsHistory: submissions,
-      subjectMastery: {
-        Mathematics: subjectStats.Mathematics.total > 0 ? Math.round((subjectStats.Mathematics.score / subjectStats.Mathematics.total) * 100) : 88,
-        Physics: subjectStats.Physics.total > 0 ? Math.round((subjectStats.Physics.score / subjectStats.Physics.total) * 100) : 74,
-        Chemistry: subjectStats.Chemistry.total > 0 ? Math.round((subjectStats.Chemistry.score / subjectStats.Chemistry.total) * 100) : 95,
-        Biology: subjectStats.Biology.total > 0 ? Math.round((subjectStats.Biology.score / subjectStats.Biology.total) * 100) : 84,
-      },
+      submissionsHistory: rows.map(row => ({
+        id: row.id,
+        subject: row.subject,
+        topic: row.result_data?.testTitle || row.test_id,
+        score: Number(row.score),
+        totalQuestions: Number(row.max_marks),
+        percentage: Number(row.percentage),
+        correctness: `${row.score} / ${row.max_marks} marks`,
+        weakTopics: row.result_data?.weakPoints || [],
+        strongTopics: (row.result_data?.stepAudit || [])
+          .filter(step => step.isCorrect)
+          .map(step => step.chapterReference)
+          .filter(Boolean),
+        date: row.submitted_at,
+        timestamp: row.submitted_at,
+      })),
+      subjectMastery: Object.fromEntries([...subjectTotals.entries()].map(([subject, totals]) => [
+        subject,
+        totals.maxMarks ? Math.round((totals.score / totals.maxMarks) * 100) : 0,
+      ])),
     };
   }
 
-  const rankManager = require('../services/rankManager');
-
-  // =========================================================================
-  // ROUTE 1: GET /api/student/performance/:userId
-  // =========================================================================
   router.get('/performance/:userId', async (req, res) => {
+    const expectedEmail = String(req.params.userId || '').trim().toLowerCase();
+    if (!expectedEmail) return res.status(400).json({ error: 'Student email is required.' });
+    const identity = await getSignedInStudentEmail(req, expectedEmail);
+    if (identity.error) return res.status(identity.status).json({ error: identity.error });
+    const userEmail = identity.email;
     try {
-      const { userId } = req.params;
-      const metrics = rankManager.getStudentPerformance(userId);
-      return res.json(metrics);
-    } catch (err) {
-      console.warn('Error fetching student performance:', err.message);
-      return res.status(500).json({ error: err.message });
+      return res.json(await getStudentMetrics(userEmail));
+    } catch (error) {
+      console.error('Error fetching student performance:', error.message);
+      return res.status(error.statusCode || 503).json({
+        error: error.code === 'PGRST205' && error.message.includes('student_roster')
+          ? 'Student roster storage is not configured. Apply backend/migrations/20261007_student_roster.sql.'
+          : error.code === 'PGRST205'
+            ? 'Assessment storage is not configured. Apply backend/migrations/20261006_assessment_workflow.sql.'
+          : 'Could not load student performance data.',
+      });
     }
   });
 
-  // =========================================================================
-  // ROUTE 2: POST /api/student/ask-advisor
-  // Student can ask personal questions to AI regarding how to improve rank/scores
-  // AI reads their actual database performance records to answer
-  // =========================================================================
   router.post('/ask-advisor', async (req, res) => {
-    const { question, userId = 'student-user-1', classLevel = 10 } = req.body;
+    const { question, userId, classLevel } = req.body;
+    const expectedEmail = String(userId || '').trim().toLowerCase();
+    if (!question?.trim() || !expectedEmail) {
+      return res.status(400).json({ error: 'Question and signed-in student email are required.' });
+    }
+    const identity = await getSignedInStudentEmail(req, expectedEmail);
+    if (identity.error) return res.status(identity.status).json({ error: identity.error });
+    const userEmail = identity.email;
 
-    if (!question || !question.trim()) {
-      return res.status(400).json({ error: 'Question is required' });
+    let metrics;
+    try {
+      metrics = await getStudentMetrics(userEmail);
+    } catch (error) {
+      console.error('Could not load advisor context:', error.message);
+      return res.status(error.statusCode || 503).json({ error: 'Could not load live student assessment data.' });
+    }
+    if (metrics.totalSubmissions === 0) {
+      return res.status(404).json({ error: 'Complete an assessment before requesting personalized performance advice.' });
     }
 
-    const qText = question.trim();
-    const metrics = rankManager.getStudentPerformance(userId);
+    const subjectScores = Object.entries(metrics.subjectMastery);
+    const strongestSubject = [...subjectScores].sort((a, b) => b[1] - a[1])[0];
+    const areasToReview = metrics.weakTopics.length ? metrics.weakTopics.join(', ') : 'No weak topics identified in submitted assessments';
+    let advice;
+    let provider = 'live-assessment-analytics';
 
-    let advice = null;
-    let provider = 'database-analytics-advisor';
-
-    // Try OpenAI GPT-4o with real student database context
     if (openai) {
       try {
-        const studentContext = `
-STUDENT PERFORMANCE PROFILE (From Live Database):
-- Current Class Rank: #${metrics.rank} out of ${metrics.totalClassStudents} students (${metrics.percentile}th Percentile)
-- Overall Accuracy: ${metrics.accuracy}% (${metrics.totalCorrectAnswers} / ${metrics.totalQuestionsAttempted} correct answers)
-- Weak Topics Identified in Past Tests: ${metrics.weakTopics.join(', ')}
-- Strong Topics Identified: ${metrics.strongTopics.join(', ')}
-- Subject Mastery Breakdown: Mathematics ${metrics.subjectMastery.Mathematics}%, Physics ${metrics.subjectMastery.Physics}%, Chemistry ${metrics.subjectMastery.Chemistry}%, Biology ${metrics.subjectMastery.Biology}%
-- Total Assessments Taken: ${metrics.totalSubmissions}
-`;
-
-        const systemPrompt = `You are a warm, highly encouraging, and deeply analytical Senior Academic Advisor & Mentor specializing in CBSE/NCERT Class ${classLevel} education.
-You have direct access to the student's live database performance record:
-${studentContext}
-
-The student is asking you a personal question about how to improve, study, or elevate their rank.
-Respond with:
-1. Personalized Assessment of their Current Standing (Acknowledge their Rank #${metrics.rank} and praise their strong areas).
-2. Pinpointed Diagnosis (Reference their exact database weak points, e.g., Physics at ${metrics.subjectMastery.Physics}% and specific topics).
-3. 3-Step Actionable Gameplan with NCERT Chapter references and time management tips.
-4. Motivational Closing to boost their confidence to achieve Rank #1.
-Keep it structured with bullet points and friendly tone.`;
-
         const completion = await openai.chat.completions.create({
           model: 'gpt-4o',
           messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: qText },
+            {
+              role: 'system',
+              content: `You are an academic advisor. Base recommendations only on this student's real submitted-assessment data: class ${classLevel || 'not recorded'}, rank ${metrics.rank ?? 'not available'}, accuracy ${metrics.accuracy}%, strongest subject ${strongestSubject?.[0] || 'not available'} (${strongestSubject?.[1] ?? 'not available'}%), topics to review: ${areasToReview}. Never invent class peers, scores, submissions, or topic weaknesses.`,
+            },
+            { role: 'user', content: question.trim() },
           ],
           temperature: 0.6,
-          max_tokens: 650,
+          max_tokens: 500,
         });
-
-        if (completion?.choices?.[0]?.message?.content) {
-          advice = completion.choices[0].message.content;
-          provider = 'openai-academic-advisor';
-        }
-      } catch (_) {}
+        advice = completion?.choices?.[0]?.message?.content;
+        if (advice) provider = 'openai-assessment-advisor';
+      } catch (error) {
+        console.error('AI advisor generation failed:', error.message);
+      }
     }
 
     if (!advice) {
-      advice = `🌟 Personalized Academic Diagnosis for Your Question: "${qText}"
-
-📊 Current Database Standing:
-• Class Standing: Rank #${metrics.rank} out of ${metrics.totalClassStudents} Students (${metrics.percentile}th Percentile)
-• Overall Accuracy: ${metrics.accuracy}% (${metrics.totalCorrectAnswers} of ${metrics.totalQuestionsAttempted} answers correct)
-• Strongest Subject: Chemistry (${metrics.subjectMastery.Chemistry}%) & Maths (${metrics.subjectMastery.Mathematics}%)
-• Focus Subject Needed: Physics (${metrics.subjectMastery.Physics}%)
-
-🎯 3-Step Strategy to Reach Rank #1:
-1. Targeted Physics Revision:
-   Your database test history shows hesitation in Parallel Resistor circuits (1/R_eq) and Mirror sign conventions. Revisit NCERT Science Chapter 10 & 12 solved examples.
-2. Step-by-Step Marking Discipline:
-   In your Homework and Quiz submissions, write down the formula first before calculating. This guarantees full marks in CBSE board evaluation rubrics.
-3. Daily 15-Minute Randomized Quiz:
-   Take 1 randomized set every day on the Quiz tab to keep your recall speed sharp.
-
-💡 Mentor Note:
-You are already in the Top ${100 - metrics.percentile}% of the class! Fixing these 2 weak topics in Physics will immediately propel you into Rank #1. Keep going!`;
+      advice = [
+        `You have completed ${metrics.totalSubmissions} assessment(s) with ${metrics.accuracy}% overall accuracy.`,
+        `Your current rank is ${metrics.rank ?? 'not available'} of ${metrics.totalClassStudents} students with submitted assessments.`,
+        `Your strongest recorded subject is ${strongestSubject?.[0] || 'not available'}${strongestSubject ? ` (${strongestSubject[1]}%)` : ''}.`,
+        `Topics to review: ${areasToReview}.`,
+        `For your question, "${question.trim()}", use these recorded results to choose the next topic to practise.`,
+      ].join('\n\n');
     }
 
-    const voiceOverScript = `Hello! Based on your database test records, you are currently holding Rank #${metrics.rank} in your class with ${metrics.accuracy} percent accuracy. Your Chemistry and Maths are performing great, while focusing on your Physics circuit formulas will help you jump straight to Rank #1. Let's look at your customized study plan.`;
-
     return res.json({
-      question: qText,
+      question: question.trim(),
       advice,
       rank: metrics.rank,
       percentile: metrics.percentile,
       accuracy: metrics.accuracy,
       weakTopics: metrics.weakTopics,
       provider,
-      voiceOverScript,
       timestamp: new Date().toISOString(),
     });
   });

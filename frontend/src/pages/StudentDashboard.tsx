@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -135,6 +135,8 @@ const StudentDashboard: React.FC = () => {
   const [monthlyTestAnswers, setMonthlyTestAnswers] = useState<Record<string, number>>({});
   const [monthlyTestSubmitting, setMonthlyTestSubmitting] = useState(false);
   const [monthlyTestResult, setMonthlyTestResult] = useState<any>(null);
+  const [studentTestSubmissions, setStudentTestSubmissions] = useState<any[]>([]);
+  const [assessmentError, setAssessmentError] = useState<string | null>(null);
   // Class & Subject selector — default to correct subject per class
   const [selectedClass, setSelectedClass] = useState<number>(10);
   const [selectedSubject, setSelectedSubject] = useState<string>('science');
@@ -144,27 +146,12 @@ const StudentDashboard: React.FC = () => {
   const [testTimeLeft, setTestTimeLeft] = useState<number>(0);
   const [testTimerActive, setTestTimerActive] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Attempt history
-  const [attemptHistory, setAttemptHistory] = useState<Array<{
-    date: string;
-    marks: number;
-    maxMarks: number;
-    percentage: number;
-    grade: string;
-    rank: number;
-  }>>([]);
-
+  const testStartedAtRef = useRef<number | null>(null);
   // AI Advisor Chat State
   const [advisorQuestion, setAdvisorQuestion] = useState('');
   const [advisorLoading, setAdvisorLoading] = useState(false);
   const [advisorResponse, setAdvisorResponse] = useState<string | null>(null);
-  const [advisorHistory, setAdvisorHistory] = useState<Array<{ q: string; a: string; time: string }>>([
-    {
-      q: 'What should I focus on to improve my class rank from #3 to #1?',
-      a: `🎯 Real-Time Analysis from Your Personal Submission History:\n• Your strongest areas are Chemistry (100% on Acids & Bases) and Mathematics (80% on AP & Algebra).\n• Your primary score leak is in Physics Electricity: parallel resistors calculation (1/R_eq) and concave/convex mirror sign conventions.\n\n3-Step Action Plan:\n1. Revise NCERT Class 10 Science Chapter 12 Page 214 numericals.\n2. Practice drawing ray diagrams for mirror formula (1/f = 1/v + 1/u).\n3. Take the October Monthly Board Test to earn high step-marking points and jump to Rank #1!`,
-      time: 'Earlier today',
-    },
-  ]);
+  const [advisorHistory, setAdvisorHistory] = useState<Array<{ q: string; a: string; time: string }>>([]);
 
   const sampleAdvisorQuestions = [
     'How can I improve my Physics score to reach Rank #1 in class?',
@@ -173,11 +160,15 @@ const StudentDashboard: React.FC = () => {
     'How do I avoid calculation mistakes in Mathematics numericals?',
   ];
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const storedUser = localStorage.getItem('user');
       const parsedUser = storedUser ? JSON.parse(storedUser) : null;
-      const userEmail = parsedUser?.email || 'student-user-1';
+      const userEmail = localStorage.getItem('user_email') || parsedUser?.email;
+      if (!userEmail) {
+        setAssessmentError('Sign in with a student account to view assessments and submission history.');
+        return;
+      }
       const userClassRaw = parsedUser?.classLevel || parsedUser?.grade || parsedUser?.class;
       const parsedUserClass = Number(userClassRaw);
       const initClass = [9, 10, 11, 12].includes(parsedUserClass) ? parsedUserClass : selectedClass;
@@ -186,39 +177,65 @@ const StudentDashboard: React.FC = () => {
       if (initClass !== selectedClass) setSelectedClass(initClass);
       if (initSubj !== selectedSubject) setSelectedSubject(initSubj);
 
-      // 1. Fetch Student Performance & Dynamic Rank from Database
-      const perfRes = await studentAPI.getPerformance(userEmail);
-      if (perfRes?.data) {
-        setMetrics(perfRes.data);
-      }
-
-      // 2. Fetch Teacher Notices
-      const noticeRes = await teacherAPI.getStudentNotices(userEmail);
-      if (noticeRes?.data) {
-        setStudentNotice(noticeRes.data);
-      }
-
-      // 3. Fetch Active Monthly Board Assessment & Catalog
-      const [monthlyRes, catalogRes] = await Promise.allSettled([
+      const [perfRes, noticeRes, monthlyRes, catalogRes, submissionsRes] = await Promise.allSettled([
+        studentAPI.getPerformance(userEmail),
+        teacherAPI.getStudentNotices(userEmail),
         examPrepAPI.getMonthlyTest(initClass, initSubj),
         examPrepAPI.getTestCatalog(),
+        examPrepAPI.getStudentTestSubmissions(userEmail),
       ]);
+      if (perfRes.status === 'fulfilled') setMetrics(perfRes.value?.data || null);
+      else console.error('Student performance fetch failed:', perfRes.reason);
+      if (noticeRes.status === 'fulfilled') setStudentNotice(noticeRes.value?.data || null);
       if (monthlyRes.status === 'fulfilled' && monthlyRes.value?.data) {
         const testObj = monthlyRes.value.data.test || monthlyRes.value.data;
         setMonthlyTestData(testObj);
+        setAssessmentError(null);
+      } else {
+        setMonthlyTestData(null);
+        const apiError = monthlyRes.status === 'rejected' ? monthlyRes.reason?.response?.data?.error : null;
+        const noPublishedTest = monthlyRes.status === 'rejected' && monthlyRes.reason?.response?.status === 404;
+        setAssessmentError(apiError || (noPublishedTest
+          ? 'No assessment has been published for your class and subject yet.'
+          : 'Could not load the published assessment.'));
       }
       if (catalogRes.status === 'fulfilled' && catalogRes.value?.data?.catalog) {
         setTestCatalog(catalogRes.value.data.catalog);
       }
+      if (submissionsRes.status === 'fulfilled') {
+        setStudentTestSubmissions(submissionsRes.value?.data?.submissions || []);
+      } else {
+        console.error('Student assessment history fetch failed:', submissionsRes.reason);
+      }
     } catch (err) {
-      console.warn('Dashboard data fetch fallback:', err);
+      console.error('Dashboard data fetch failed:', err);
     }
-  };
+  }, [selectedClass, selectedSubject]);
 
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect
     fetchData();
-  }, []);
+  }, [fetchData]);
+
+  useEffect(() => {
+    const refreshAssessmentData = () => {
+      const email = localStorage.getItem('user_email');
+      if (email) {
+        examPrepAPI.getStudentTestSubmissions(email)
+          .then((res) => setStudentTestSubmissions(res?.data?.submissions || []))
+          .catch((err) => console.error('Assessment refresh failed:', err));
+      }
+      const subject = selectedClass >= 11 && selectedSubject === 'science' ? 'physics' : selectedSubject;
+      examPrepAPI.getMonthlyTest(selectedClass, subject)
+        .then((res) => setMonthlyTestData(res?.data?.test || res?.data || null))
+        .catch((err) => {
+          if (err?.response?.status === 404) setMonthlyTestData(null);
+          else console.error('Assessment refresh failed:', err);
+        });
+    };
+    const intervalId = window.setInterval(refreshAssessmentData, 15000);
+    return () => window.clearInterval(intervalId);
+  }, [selectedClass, selectedSubject]);
 
   // Re-fetch correct test whenever the class or subject selector changes
   useEffect(() => {
@@ -229,9 +246,15 @@ const StudentDashboard: React.FC = () => {
         const testObj = res?.data?.test || res?.data;
         if (testObj && testObj.classLevel) {
           setMonthlyTestData(testObj);
+          setAssessmentError(null);
         }
       } catch (err) {
-        console.warn('Test re-fetch error:', err);
+        if (err?.response?.status === 404) {
+          setMonthlyTestData(null);
+          setAssessmentError('No assessment has been published for your class and subject yet.');
+        } else {
+          console.error('Test re-fetch failed:', err);
+        }
       }
     };
     fetchTestForClass();
@@ -266,6 +289,11 @@ const StudentDashboard: React.FC = () => {
   };
 
   const handleOpenMonthlyTest = async () => {
+    const storedEmail = localStorage.getItem('user_email');
+    if (!storedEmail) {
+      setAssessmentError('Sign in with a student account before taking an assessment.');
+      return;
+    }
     setMonthlyTestResult(null);
     setMonthlyTestAnswers({});
     setTestHintsOpen({});
@@ -274,15 +302,19 @@ const StudentDashboard: React.FC = () => {
     try {
       const res = await examPrepAPI.getMonthlyTest(selectedClass, effectiveSubject);
       const testObj = res?.data?.test || res?.data;
-      if (testObj) {
-        setMonthlyTestData(testObj);
-        const durationSecs = (testObj.durationMinutes || 45) * 60;
-        setTestTimeLeft(durationSecs);
+      if (!testObj) {
+        setAssessmentError('No assessment is available for your class and subject.');
+        return;
       }
-    } catch {
-      const durationSecs = (monthlyTestData?.durationMinutes || 45) * 60;
+      setMonthlyTestData(testObj);
+      setAssessmentError(null);
+      const durationSecs = (testObj.durationMinutes || 45) * 60;
       setTestTimeLeft(durationSecs);
+    } catch {
+      setAssessmentError('Could not load the published assessment. Please try again shortly.');
+      return;
     }
+    testStartedAtRef.current = Date.now();
     setTestTimerActive(true);
     setMonthlyTestOpen(true);
   };
@@ -308,29 +340,24 @@ const StudentDashboard: React.FC = () => {
     setMonthlyTestSubmitting(true);
     try {
       const storedUser = localStorage.getItem('user');
-      const userEmail = storedUser ? JSON.parse(storedUser).email : 'student@example.com';
-      const userName = storedUser ? (JSON.parse(storedUser).name || 'Active Student') : 'Active Student';
+      const parsedUser = storedUser ? JSON.parse(storedUser) : {};
+      const userEmail = localStorage.getItem('user_email') || parsedUser.email;
+      const userName = localStorage.getItem('user_name') || parsedUser.name;
+      if (!userEmail || !userName || !monthlyTestData?.testId) {
+        throw new Error('Sign in with a student account and load the published test before submitting.');
+      }
 
       const res = await examPrepAPI.submitMonthlyTest({
         testId: monthlyTestData?.testId,
         answers: monthlyTestAnswers,
         userId: userEmail,
         studentName: userName,
-        classLevel: selectedClass,
-        subject: selectedSubject,
+        timeTakenSeconds: Math.max(0, Math.floor((Date.now() - (testStartedAtRef.current || Date.now())) / 1000)),
       });
 
       if (res?.data) {
         setMonthlyTestResult(res.data);
-        // Record in local attempt history
-        setAttemptHistory(prev => [{
-          date: new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }),
-          marks: res.data.totalMarksEarned,
-          maxMarks: res.data.maxMarks,
-          percentage: res.data.percentage,
-          grade: res.data.grade,
-          rank: res.data.rank,
-        }, ...prev].slice(0, 10));
+        setStudentTestSubmissions((previous) => [res.data, ...previous]);
         // Refresh dashboard metrics so rank and AI improvements recalculate in real-time!
         await fetchData();
       }
@@ -351,7 +378,9 @@ const StudentDashboard: React.FC = () => {
 
     try {
       const storedUser = localStorage.getItem('user');
-      const userEmail = storedUser ? JSON.parse(storedUser).email : 'student-user-1';
+      const parsedUser = storedUser ? JSON.parse(storedUser) : {};
+      const userEmail = localStorage.getItem('user_email') || parsedUser.email;
+      if (!userEmail) throw new Error('Sign in to use the student advisor.');
 
       const res = await studentAPI.askAdvisor(query, userEmail, 10);
       if (res?.data?.advice) {
@@ -368,16 +397,7 @@ const StudentDashboard: React.FC = () => {
       console.warn('Advisor API error:', err);
     }
 
-    // Fallback response reading local metrics
-    const rankNum = metrics?.rank || 3;
-    const acc = metrics?.accuracy || 80;
-    const fallbackAdvice = `🌟 AI Academic Diagnosis for "${query}":\n\n📊 Real-Time Database Record:\n• Rank: #${rankNum} in Class 10 (${metrics?.percentile || 94}th Percentile)\n• Answer Correctness: ${acc}% Accuracy (${metrics?.totalCorrectAnswers || 16}/${metrics?.totalQuestionsAttempted || 20} correct)\n• Weak Chapters: Parallel Resistor combinations (NCERT Ch 12) & Mirror Sign Conventions (NCERT Ch 10).\n\n🎯 Customized Strategy:\n1. Spend 20 mins solving NCERT Chapter 12 Page 214 solved numericals.\n2. Write down formula before numbers (Step 1 → Step 4 marking scheme).\n3. Keep practicing daily 5-question sets on the Quiz tab!`;
-    setAdvisorResponse(fallbackAdvice);
-    setAdvisorHistory((prev) => [
-      { q: query, a: fallbackAdvice, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-      ...prev,
-    ]);
-    if (!customQ) setAdvisorQuestion('');
+    setAdvisorResponse('The advisor could not retrieve live student data. Please try again when the backend is available.');
     setAdvisorLoading(false);
   };
 
@@ -417,7 +437,7 @@ const StudentDashboard: React.FC = () => {
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
               <CalendarMonthIcon sx={{ color: '#a5b4fc', fontSize: 28 }} />
               <Typography variant="h5" sx={{ fontWeight: 800, color: '#f8fafc' }}>
-                {monthlyTestData?.title || 'October 2026 Monthly Board Examination (NCERT Aligned)'}
+                {monthlyTestData?.title || 'No assessment published yet'}
               </Typography>
               <Chip
                 label="Strict NCERT Step Marking"
@@ -426,13 +446,18 @@ const StudentDashboard: React.FC = () => {
               />
             </Stack>
             <Typography variant="body2" sx={{ color: '#c7d2fe', maxWidth: 720 }}>
-              Organised by Teachers & AI Curriculum Engine. Evaluates formula statements, step derivations, substitutions, calculations, and final S.I. units per strict CBSE/NCERT marking rubrics. Direct impact on class rank.
+              {monthlyTestData
+                ? `Published by ${monthlyTestData.organizer || 'your teacher'}. Complete the assessment within the allotted time; your score and submission time will be shared with your teacher.`
+                : 'Your teacher has not published an assessment for this class and subject yet.'}
             </Typography>
             <Stack direction="row" spacing={1.5} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
-              <Chip label={`Grade: Class ${monthlyTestData?.classLevel || 10}`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff', fontWeight: 700 }} />
-              <Chip label={`Duration: ${monthlyTestData?.durationMinutes || 45} Mins`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff', fontWeight: 700 }} />
-              <Chip label={`Total: ${monthlyTestData?.totalMarks || 10} Marks`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff', fontWeight: 700 }} />
-              <Chip label="💡 Hints on Hard Questions Enabled" size="small" sx={{ bgcolor: '#fef08a', color: '#854d0e', fontWeight: 700 }} />
+              {monthlyTestData && (
+                <>
+                  <Chip label={`Grade: Class ${monthlyTestData.classLevel}`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff', fontWeight: 700 }} />
+                  <Chip label={`Duration: ${monthlyTestData.durationMinutes} Mins`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff', fontWeight: 700 }} />
+                  <Chip label={`Total: ${monthlyTestData.totalMarks} Marks`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff', fontWeight: 700 }} />
+                </>
+              )}
             </Stack>
           </Box>
 
@@ -441,6 +466,7 @@ const StudentDashboard: React.FC = () => {
             size="large"
             startIcon={<FactCheckIcon />}
             onClick={handleOpenMonthlyTest}
+            disabled={!monthlyTestData || studentTestSubmissions.some((submission) => submission.testId === monthlyTestData.testId)}
             sx={{
               bgcolor: '#6366f1',
               color: '#ffffff',
@@ -453,10 +479,53 @@ const StudentDashboard: React.FC = () => {
               '&:hover': { bgcolor: '#4f46e5' },
             }}
           >
-            Take Monthly Board Test
+            {studentTestSubmissions.some((submission) => submission.testId === monthlyTestData?.testId)
+              ? 'Assessment Submitted'
+              : 'Take Published Assessment'}
           </Button>
         </Stack>
       </Card>
+      {assessmentError && (
+        <Alert severity={assessmentError.startsWith('No assessment') ? 'info' : 'warning'} sx={{ mb: 3 }}>
+          {assessmentError}
+        </Alert>
+      )}
+
+      {studentTestSubmissions.length > 0 && (
+        <Card sx={{ mb: 3, borderRadius: 3 }}>
+          <CardHeader title="Assessment submissions and teacher feedback" />
+          <CardContent>
+            <Stack spacing={1.5}>
+              {studentTestSubmissions.map((submission) => (
+                <Paper key={submission.id || `${submission.testId}-${submission.timestamp}`} variant="outlined" sx={{ p: 2 }}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between">
+                    <Box>
+                      <Typography variant="subtitle2" fontWeight={800}>{submission.testTitle}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {submission.totalMarksEarned}/{submission.maxMarks} marks · {submission.percentage}% ·
+                        {' '}{Math.floor((submission.timeTakenSeconds || 0) / 60)}m {(submission.timeTakenSeconds || 0) % 60}s
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Submitted {new Date(submission.timestamp).toLocaleString()}
+                      </Typography>
+                    </Box>
+                    <Chip label={submission.grade} color={submission.percentage >= 50 ? 'success' : 'warning'} size="small" />
+                  </Stack>
+                  {submission.teacherFeedback ? (
+                    <Alert severity="info" sx={{ mt: 1.5 }}>
+                      <strong>Teacher feedback:</strong> {submission.teacherFeedback}
+                    </Alert>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                      Teacher feedback is pending.
+                    </Typography>
+                  )}
+                </Paper>
+              ))}
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ========================================================= */}
       {/* TEACHER NOTICES & ENROLLMENT STATUS                       */}
@@ -512,10 +581,10 @@ const StudentDashboard: React.FC = () => {
                 <EmojiEventsIcon sx={{ color: '#eab308', fontSize: 28 }} />
               </Box>
               <Typography variant="h3" sx={{ fontWeight: 900, color: '#1e3a8a', mb: 0.5 }}>
-                #{metrics?.rank || 3}
+                #{metrics?.rank ?? '—'}
               </Typography>
               <Typography variant="caption" sx={{ fontWeight: 700, color: '#2563eb' }}>
-                Out of {metrics?.totalClassStudents || 45} Students ({metrics?.percentile || 94}th Percentile)
+                {metrics?.totalClassStudents ?? '—'} students · {metrics?.percentile ?? '—'}th percentile
               </Typography>
             </CardContent>
           </Card>
@@ -532,10 +601,10 @@ const StudentDashboard: React.FC = () => {
                 <CheckCircleIcon sx={{ color: '#10b981', fontSize: 28 }} />
               </Box>
               <Typography variant="h3" sx={{ fontWeight: 900, color: '#065f46', mb: 0.5 }}>
-                {metrics?.accuracy || 80}%
+                {metrics?.accuracy ?? '—'}{metrics ? '%' : ''}
               </Typography>
               <Typography variant="caption" sx={{ fontWeight: 700, color: '#059669' }}>
-                {metrics?.totalCorrectAnswers || 16} of {metrics?.totalQuestionsAttempted || 20} Answers Correct
+                {metrics?.totalCorrectAnswers ?? '—'} of {metrics?.totalQuestionsAttempted ?? '—'} Answers Correct
               </Typography>
             </CardContent>
           </Card>
@@ -552,7 +621,7 @@ const StudentDashboard: React.FC = () => {
                 <AssessmentIcon sx={{ color: '#8b5cf6', fontSize: 28 }} />
               </Box>
               <Typography variant="h3" sx={{ fontWeight: 900, color: '#5b21b6', mb: 0.5 }}>
-                {metrics?.totalSubmissions || 4}
+                {metrics?.totalSubmissions ?? '—'}
               </Typography>
               <Typography variant="caption" sx={{ fontWeight: 700, color: '#7c3aed' }}>
                 Across Maths, Physics & Chemistry
@@ -572,10 +641,12 @@ const StudentDashboard: React.FC = () => {
                 <TrendingUpIcon sx={{ color: '#f59e0b', fontSize: 28 }} />
               </Box>
               <Typography variant="h4" sx={{ fontWeight: 900, color: '#0f172a', mb: 0.5 }}>
-                Chemistry (95%)
+                {Object.entries(metrics?.subjectMastery || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || '—'}
               </Typography>
               <Typography variant="caption" sx={{ fontWeight: 700, color: '#d97706' }}>
-                Needs Work: Physics (74%)
+                {Object.entries(metrics?.subjectMastery || {}).sort((a, b) => Number(a[1]) - Number(b[1]))[0]
+                  ? `Needs Work: ${Object.entries(metrics?.subjectMastery || {}).sort((a, b) => Number(a[1]) - Number(b[1]))[0][0]}`
+                  : 'No subject records yet'}
               </Typography>
             </CardContent>
           </Card>
@@ -629,17 +700,34 @@ const StudentDashboard: React.FC = () => {
               border: '1.5px solid #86efac',
             }}
           >
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
-              <AutoAwesomeIcon sx={{ color: '#16a34a', fontSize: 28, mt: 0.2 }} />
-              <Box sx={{ flexGrow: 1 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#14532d' }}>
-                  ⚡ Real-Time Individualized Diagnostics (Unique to Your Test Submissions)
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#166534', mt: 0.5 }}>
-                  These actionable NCERT improvement steps are dynamically generated from your specific test answers, wrong options, and subject accuracy leaks. They automatically adapt as soon as you complete a new quiz or monthly board assessment.
-                </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flex: '1 1 0', minWidth: 0 }}>
+                <AutoAwesomeIcon sx={{ color: '#16a34a', fontSize: 28, mt: 0.2, flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#14532d' }}>
+                    ⚡ Real-Time Individualized Diagnostics (Unique to Your Test Submissions)
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#166534', mt: 0.5 }}>
+                    These actionable NCERT improvement steps are dynamically generated from your specific test answers, wrong options, and subject accuracy leaks. They automatically adapt as soon as you complete a new quiz or monthly board assessment.
+                  </Typography>
+                </Box>
               </Box>
-              <Button component={RouterLink} to="/quiz" variant="contained" size="small" sx={{ fontWeight: 700, bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' }, whiteSpace: 'nowrap' }}>
+              <Button
+                component={RouterLink}
+                to="/quiz"
+                variant="contained"
+                size="small"
+                sx={{
+                  flexShrink: 0,
+                  minWidth: { xs: '100%', sm: 190 },
+                  fontWeight: 700,
+                  bgcolor: '#16a34a',
+                  '&:hover': { bgcolor: '#15803d' },
+                  whiteSpace: { xs: 'normal', sm: 'nowrap' },
+                  alignSelf: { xs: 'stretch', sm: 'center' },
+                  textAlign: 'center',
+                }}
+              >
                 Take Daily Speed Test
               </Button>
             </Stack>
@@ -680,17 +768,29 @@ const StudentDashboard: React.FC = () => {
                     <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748b' }}>
                       📚 Reference: <strong>{item.ncertChapter}</strong>
                     </Typography>
-                    <Button
-                      href={item.link}
-                      target={item.link.startsWith('http') ? '_blank' : '_self'}
-                      rel="noopener noreferrer"
-                      size="small"
-                      variant="outlined"
-                      endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
-                      sx={{ fontWeight: 700, borderRadius: 2 }}
-                    >
-                      {item.action}
-                    </Button>
+                    {item.link?.startsWith('http') ? (
+                      <Button
+                        href={item.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        size="small"
+                        variant="outlined"
+                        endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
+                        sx={{ fontWeight: 700, borderRadius: 2 }}
+                      >
+                        {item.action}
+                      </Button>
+                    ) : (
+                      <Button
+                        component={RouterLink}
+                        to={item.link || '/quiz'}
+                        size="small"
+                        variant="contained"
+                        sx={{ fontWeight: 700, borderRadius: 2, bgcolor: '#2563eb', '&:hover': { bgcolor: '#1d4ed8' } }}
+                      >
+                        {item.action}
+                      </Button>
+                    )}
                   </Box>
                 </CardContent>
               </Card>
@@ -815,7 +915,7 @@ const StudentDashboard: React.FC = () => {
             <Table>
               <TableHead sx={{ bgcolor: '#f8fafc' }}>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 800 }}>Rank</TableCell>
+                  <TableCell sx={{ fontWeight: 800 }}>Time Taken</TableCell>
                   <TableCell sx={{ fontWeight: 800 }}>Student Name</TableCell>
                   <TableCell sx={{ fontWeight: 800 }}>Accuracy</TableCell>
                   <TableCell sx={{ fontWeight: 800 }}>Questions Solved</TableCell>
@@ -947,7 +1047,7 @@ const StudentDashboard: React.FC = () => {
                 <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1 }}>
                   <CalendarMonthIcon sx={{ fontSize: 32, color: '#a5b4fc' }} />
                   <Typography variant="h5" sx={{ fontWeight: 900, color: '#f8fafc' }}>
-                    {monthlyTestData?.title || 'October 2026 Monthly Board Examination'}
+                    {monthlyTestData?.title || 'No assessment published yet'}
                   </Typography>
                 </Stack>
                 <Typography variant="body2" sx={{ color: '#c7d2fe', maxWidth: 680 }}>
@@ -962,21 +1062,23 @@ const StudentDashboard: React.FC = () => {
                         const cl = Number(e.target.value);
                         setSelectedClass(cl);
                         const avail = testCatalog.filter(t => t.classLevel === cl);
-                        let nextSubj = selectedSubject;
-                        if (avail.length > 0) {
-                          if (!avail.some(a => a.subject === selectedSubject)) {
-                            nextSubj = avail[0].subject;
-                          }
-                        } else {
-                          nextSubj = cl >= 11 ? 'physics' : 'science';
-                        }
+                        const classSubjects = cl >= 11
+                          ? ['physics', 'chemistry', 'biology', 'maths']
+                          : ['science', 'maths'];
+                        const nextSubj = classSubjects.includes(selectedSubject)
+                          ? selectedSubject
+                          : avail.find(test => classSubjects.includes(test.subject))?.subject || classSubjects[0];
                         setSelectedSubject(nextSubj);
+                        setMonthlyTestData(null);
                         try {
                           const res = await examPrepAPI.getMonthlyTest(cl, nextSubj);
                           const testObj = res?.data?.test || res?.data;
                           if (testObj) setMonthlyTestData(testObj);
                         } catch (err) {
-                          console.error('Failed to load test on class switch:', err);
+                          setMonthlyTestData(null);
+                          if (err?.response?.status !== 404) {
+                            console.error('Failed to load test on class switch:', err);
+                          }
                         }
                       }}
                       sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff', fontWeight: 800, borderRadius: 2,
@@ -1009,14 +1111,13 @@ const StudentDashboard: React.FC = () => {
                         textTransform: 'capitalize',
                       }}
                     >
-                      {(testCatalog.filter(t => t.classLevel === selectedClass).length > 0
-                        ? testCatalog.filter(t => t.classLevel === selectedClass)
-                        : (selectedClass >= 11
-                            ? [{ subject: 'physics', subjectLabel: 'Physics' }, { subject: 'chemistry', subjectLabel: 'Chemistry' }, { subject: 'maths', subjectLabel: 'Mathematics' }, { subject: 'biology', subjectLabel: 'Biology' }]
-                            : [{ subject: 'science', subjectLabel: 'Science' }, { subject: 'maths', subjectLabel: 'Mathematics' }]
-                          )
-                      ).map(t => (
-                        <MenuItem key={t.subject} value={t.subject} sx={{ fontWeight: 700, textTransform: 'capitalize' }}>{t.subjectLabel}</MenuItem>
+                      {(selectedClass >= 11
+                        ? ['physics', 'chemistry', 'biology', 'maths']
+                        : ['science', 'maths']
+                      ).map(subject => (
+                        <MenuItem key={subject} value={subject} sx={{ fontWeight: 700, textTransform: 'capitalize' }}>
+                          {subject === 'maths' ? 'Mathematics' : subject[0].toUpperCase() + subject.slice(1)}
+                        </MenuItem>
                       ))}
                     </Select>
                   </FormControl>
@@ -1072,7 +1173,7 @@ const StudentDashboard: React.FC = () => {
                   '&:hover': { bgcolor: '#4f46e5' },
                 }}
               >
-                Start Monthly Test
+                {monthlyTestData ? 'Start Published Test' : 'No Test Published'}
               </Button>
             </Stack>
           </Paper>
@@ -1116,8 +1217,12 @@ const StudentDashboard: React.FC = () => {
                     <LightbulbIcon sx={{ color: '#ca8a04', fontSize: 24 }} />
                     <Typography variant="caption" sx={{ fontWeight: 800, color: '#a16207', textTransform: 'uppercase' }}>Hints Available</Typography>
                   </Stack>
-                  <Typography variant="h4" sx={{ fontWeight: 900, color: '#713f12' }}>Yes</Typography>
-                  <Typography variant="caption" sx={{ color: '#854d0e', fontWeight: 600 }}>💡 On hard questions only</Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 900, color: '#713f12' }}>
+                    {monthlyTestData?.hintsEnabled ? 'Yes' : monthlyTestData ? 'No' : '—'}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#854d0e', fontWeight: 600 }}>
+                    {monthlyTestData ? 'As configured by your teacher' : 'No assessment published'}
+                  </Typography>
                 </CardContent>
               </Card>
             </Grid>
@@ -1128,8 +1233,8 @@ const StudentDashboard: React.FC = () => {
                     <HistoryIcon sx={{ color: '#dc2626', fontSize: 24 }} />
                     <Typography variant="caption" sx={{ fontWeight: 800, color: '#b91c1c', textTransform: 'uppercase' }}>Your Attempts</Typography>
                   </Stack>
-                  <Typography variant="h4" sx={{ fontWeight: 900, color: '#7f1d1d' }}>{attemptHistory.length}</Typography>
-                  <Typography variant="caption" sx={{ color: '#dc2626', fontWeight: 600 }}>This session</Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 900, color: '#7f1d1d' }}>{studentTestSubmissions.length}</Typography>
+                  <Typography variant="caption" sx={{ color: '#dc2626', fontWeight: 600 }}>Saved assessments</Typography>
                 </CardContent>
               </Card>
             </Grid>
@@ -1145,13 +1250,7 @@ const StudentDashboard: React.FC = () => {
             <Divider />
             <CardContent sx={{ p: 2.5 }}>
               <Stack spacing={1}>
-                {(monthlyTestData?.instructions || [
-                  'Strict step-marking is enforced as per official NCERT guidelines.',
-                  'Section A: 1 Mark each for objective concepts & assertion-reasoning.',
-                  'Section B: 2 Marks each with step marking (Formula: 1m, Calculation: 1m).',
-                  'Section C: 3 Marks each with step marking (Principle: 1m, Substitution: 1m, Result & Units: 1m).',
-                  'Hints are available for challenging questions to facilitate scaffolded learning.',
-                ]).map((inst: string, i: number) => (
+                {(monthlyTestData?.instructions || []).map((inst: string, i: number) => (
                   <Stack key={i} direction="row" spacing={1.5} alignItems="flex-start">
                     <Chip
                       label={`${i + 1}`}
@@ -1166,12 +1265,12 @@ const StudentDashboard: React.FC = () => {
           </Card>
 
           {/* Attempt History Table */}
-          {attemptHistory.length > 0 ? (
+          {studentTestSubmissions.length > 0 ? (
             <Card sx={{ borderRadius: 3, border: '1px solid #e2e8f0' }}>
               <CardHeader
                 avatar={<HistoryIcon sx={{ color: '#6366f1' }} />}
-                title={<Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Your Test Attempt History (This Session)</Typography>}
-                subheader="Scores and ranks from monthly tests submitted today"
+                title={<Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Your Assessment History</Typography>}
+                subheader="Saved results from submitted assessments"
               />
               <Divider />
               <TableContainer>
@@ -1186,12 +1285,12 @@ const StudentDashboard: React.FC = () => {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {attemptHistory.map((att, idx) => (
-                      <TableRow key={idx} sx={{ bgcolor: idx === 0 ? '#eff6ff' : 'inherit' }}>
-                        <TableCell sx={{ fontWeight: 600, color: '#475569' }}>{att.date}</TableCell>
+                    {studentTestSubmissions.map((att, idx) => (
+                      <TableRow key={att.id || idx} sx={{ bgcolor: idx === 0 ? '#eff6ff' : 'inherit' }}>
+                        <TableCell sx={{ fontWeight: 600, color: '#475569' }}>{new Date(att.timestamp).toLocaleString()}</TableCell>
                         <TableCell>
                           <Chip
-                            label={`${att.marks} / ${att.maxMarks}`}
+                            label={`${att.totalMarksEarned} / ${att.maxMarks}`}
                             size="small"
                             color={att.percentage >= 80 ? 'success' : att.percentage >= 50 ? 'warning' : 'error'}
                             sx={{ fontWeight: 800 }}
@@ -1203,7 +1302,9 @@ const StudentDashboard: React.FC = () => {
                         <TableCell>
                           <Chip label={att.grade.split(' ')[0]} size="small" variant="outlined" sx={{ fontWeight: 800 }} />
                         </TableCell>
-                        <TableCell sx={{ fontWeight: 800, color: '#4f46e5' }}>#{att.rank}</TableCell>
+                        <TableCell sx={{ fontWeight: 800, color: '#4f46e5' }}>
+                          {Math.floor((att.timeTakenSeconds || 0) / 60)}m {(att.timeTakenSeconds || 0) % 60}s
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1217,12 +1318,13 @@ const StudentDashboard: React.FC = () => {
                 No attempts yet this session
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-                Click "Start Monthly Test" to take the October 2026 NCERT Board Examination. Your score updates your live class rank instantly.
+                Complete the published assessment to record your score and time taken in your assessment history.
               </Typography>
               <Button
                 variant="contained"
                 startIcon={<PlayArrowIcon />}
                 onClick={handleOpenMonthlyTest}
+                disabled={!monthlyTestData || studentTestSubmissions.some((submission) => submission.testId === monthlyTestData.testId)}
                 sx={{ bgcolor: '#4f46e5', fontWeight: 800, borderRadius: 2.5, px: 3.5, '&:hover': { bgcolor: '#4338ca' } }}
               >
                 Start Test Now
@@ -1463,7 +1565,7 @@ const StudentDashboard: React.FC = () => {
               </Alert>
 
               {/* ── Past Performance & Attempt Trends Analysis ── */}
-              {attemptHistory.length > 0 && (
+              {studentTestSubmissions.length > 0 && (
                 <Card sx={{ mt: 3, borderRadius: 3, border: '1px solid #e0e7ff', bgcolor: '#f5f3ff' }}>
                   <CardHeader
                     avatar={<HistoryIcon sx={{ color: '#7c3aed' }} />}
@@ -1472,13 +1574,13 @@ const StudentDashboard: React.FC = () => {
                   <Divider />
                   <CardContent sx={{ p: 2 }}>
                     <Stack spacing={1}>
-                      {attemptHistory.slice(-4).map((att: any, aIdx: number) => (
+                      {studentTestSubmissions.slice(0, 4).map((att: any, aIdx: number) => (
                         <Box key={aIdx} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, bgcolor: '#fff', borderRadius: 1.5, border: '1px solid #e9d5ff' }}>
                           <Typography variant="caption" sx={{ fontWeight: 700, color: '#3b0764' }}>
-                            Attempt #{aIdx + 1} ({att.date})
+                            {att.testTitle} ({new Date(att.timestamp).toLocaleDateString()})
                           </Typography>
                           <Stack direction="row" spacing={1}>
-                            <Chip label={`${att.score} / ${att.maxMarks} Marks`} size="small" color="primary" sx={{ fontWeight: 800 }} />
+                            <Chip label={`${att.totalMarksEarned} / ${att.maxMarks} Marks`} size="small" color="primary" sx={{ fontWeight: 800 }} />
                             <Chip label={`${att.percentage}%`} size="small" color={att.percentage >= 80 ? 'success' : 'warning'} sx={{ fontWeight: 800 }} />
                             <Chip label={att.grade} size="small" variant="outlined" sx={{ fontWeight: 700 }} />
                           </Stack>

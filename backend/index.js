@@ -1,14 +1,16 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '.env.local'), override: true });
 
 const { createClient } = require('@supabase/supabase-js');
 const { OpenAI } = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
 // Initialize Supabase client (use service role key for server-side to bypass RLS)
 let supabase = null;
 if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)) {
@@ -21,14 +23,26 @@ if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || proces
   }
 }
 
+// Initialize Gemini AI client (primary)
+let gemini = null;
+if (process.env.GEMINI_API_KEY) {
+  try {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    gemini = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    console.log('Gemini AI initialized (gemini-2.5-flash)');
+  } catch (err) {
+    console.warn('Warning: Could not initialize Gemini client:', err.message);
+  }
+}
 
-// Initialize OpenAI client
+// Initialize OpenAI client (fallback)
 let openai = null;
 if (process.env.OPENAI_API_KEY) {
   try {
     openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+    console.log('OpenAI initialized (fallback)');
   } catch (err) {
     console.warn('Warning: Could not initialize OpenAI client:', err.message);
   }
@@ -47,14 +61,13 @@ const examPrepRoutes = require('./routes/examPrep');
 const teacherRoutes = require('./routes/teacher');
 const studentRoutes = require('./routes/student');
 
-// Pass clients to route handlers if they are functions, otherwise use as routers
+// Pass clients to route handlers (gemini as primary AI, openai as secondary)
 app.use('/api/auth', typeof authRoutes === 'function' ? authRoutes(supabase) : authRoutes);
-app.use('/api/tutoring', typeof tutoringRoutes === 'function' ? tutoringRoutes(supabase, openai) : tutoringRoutes);
-app.use('/api/quiz', typeof quizRoutes === 'function' ? quizRoutes(supabase, openai) : quizRoutes);
-app.use('/api/exam-prep', typeof examPrepRoutes === 'function' ? examPrepRoutes(supabase, openai) : examPrepRoutes);
+app.use('/api/tutoring', typeof tutoringRoutes === 'function' ? tutoringRoutes(supabase, openai, gemini) : tutoringRoutes);
+app.use('/api/quiz', typeof quizRoutes === 'function' ? quizRoutes(supabase, openai, gemini) : quizRoutes);
+app.use('/api/exam-prep', typeof examPrepRoutes === 'function' ? examPrepRoutes(supabase) : examPrepRoutes);
 app.use('/api/teacher', typeof teacherRoutes === 'function' ? teacherRoutes(supabase) : teacherRoutes);
 app.use('/api/student', typeof studentRoutes === 'function' ? studentRoutes(supabase, openai) : studentRoutes);
-
 
 // Health check route
 app.get('/health', (req, res) => {
@@ -62,6 +75,7 @@ app.get('/health', (req, res) => {
     status: 'OK',
     timestamp: new Date().toISOString(),
     supabaseConfigured: Boolean(supabase),
+    geminiConfigured: Boolean(gemini),
     openaiConfigured: Boolean(openai),
   });
 });
@@ -74,7 +88,7 @@ app.get('/', (req, res) => {
 // Start server only when running locally (not on Vercel serverless)
 if (process.env.VERCEL !== '1') {
   app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`Server running on port ${PORT} | Gemini: ${Boolean(gemini)} | OpenAI: ${Boolean(openai)}`);
   });
 }
 

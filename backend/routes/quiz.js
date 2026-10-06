@@ -1,6 +1,6 @@
 const express = require('express');
 
-function quizRoutes(supabase, openai) {
+function quizRoutes(supabase, openai, gemini) {
   const router = express.Router();
 
   // Government / NCERT Free e-Book portal references
@@ -126,6 +126,306 @@ function quizRoutes(supabase, openai) {
           chapter_reference: 'NCERT Class 10 Science Chapter 7',
           class_level: 10,
           source: 'https://ncert.nic.in/textbook.php?jesc1=7-16'
+        }
+      ]
+    },
+    class11: {
+      mathematics: [
+        {
+          question: 'Let A and B be two sets such that n(A) = 5 and n(B) = 6. If n(A ∩ B) = 3, what is n(A ∪ B)?',
+          answer: '8',
+          explanation: 'Using the formula n(A ∪ B) = n(A) + n(B) - n(A ∩ B), we get n(A ∪ B) = 5 + 6 - 3 = 8.',
+          topic: 'Sets',
+          chapter_reference: 'NCERT Class 11 Maths Chapter 1',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?jemh1=1-15'
+        },
+        {
+          question: 'Find the domain of the function f(x) = √(x - 2).',
+          answer: '[2, ∞)',
+          explanation: 'For the square root function to be defined, the expression inside must be non-negative: x - 2 ≥ 0, which gives x ≥ 2.',
+          topic: 'Relations and Functions',
+          chapter_reference: 'NCERT Class 11 Maths Chapter 2',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?jemh1=2-15'
+        },
+        {
+          question: 'What is the value of i^4k + i^(4k+1) + i^(4k+2) + i^(4k+3) for any integer k?',
+          answer: '0',
+          explanation: 'Since i^4k = 1, i^(4k+1) = i, i^(4k+2) = -1, and i^(4k+3) = -i, their sum is 1 + i - 1 - i = 0.',
+          topic: 'Complex Numbers and Quadratic Equations',
+          chapter_reference: 'NCERT Class 11 Maths Chapter 5',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?jemh1=5-15'
+        },
+        {
+          question: 'In how many ways can 5 distinct books be arranged on a shelf?',
+          answer: '120 ways',
+          explanation: 'The number of permutations of 5 distinct items is 5! = 5 × 4 × 3 × 2 × 1 = 120.',
+          topic: 'Permutations and Combinations',
+          chapter_reference: 'NCERT Class 11 Maths Chapter 7',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?jemh1=7-15'
+        },
+        {
+          question: 'What is the sum of an infinite geometric progression with first term a and common ratio r (|r| < 1)?',
+          answer: 'S_∞ = a / (1 - r)',
+          explanation: 'For an infinite GP where |r| < 1, as n → ∞, r^n → 0, yielding the sum formula S_∞ = a / (1 - r).',
+          topic: 'Sequences and Series',
+          chapter_reference: 'NCERT Class 11 Maths Chapter 9',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?jemh1=9-15'
+        },
+        {
+          question: 'What is the derivative of sin(x) with respect to x from first principles?',
+          answer: 'cos(x)',
+          explanation: 'By the definition of derivative, lim(h→0) [sin(x + h) - sin(x)] / h = lim(h→0) [2 cos(x + h/2) sin(h/2)] / h = cos(x).',
+          topic: 'Limits and Derivatives',
+          chapter_reference: 'NCERT Class 11 Maths Chapter 13',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?jemh1=13-15'
+        }
+      ],
+      physics: [
+        {
+          question: 'What is the SI unit of pressure?',
+          answer: 'Pascal (Pa)',
+          explanation: 'Pressure is defined as force per unit area. The SI unit of force is newton (N) and area is square meter (m²), so pressure has unit N/m² which is called pascal (Pa).',
+          topic: 'Units and Measurements',
+          chapter_reference: 'NCERT Class 11 Physics Chapter 2',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=2-15'
+        },
+        {
+          question: 'What is the work done by a force in displacing a body when the force acts at an angle of 90° to the direction of displacement?',
+          answer: 'Zero',
+          explanation: 'Work done W = F·d·cosθ. When θ = 90°, cos 90° = 0, therefore W = F·d·0 = 0.',
+          topic: 'Work, Energy and Power',
+          chapter_reference: 'NCERT Class 11 Physics Chapter 6',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=6-15'
+        },
+        {
+          question: 'What is the escape velocity of a body from the surface of the Earth?',
+          answer: '11.2 km/s',
+          explanation: 'Escape velocity is v_e = √(2gR) = √(2 × 9.8 × 6.4 × 10⁶) ≈ 11.2 km/s.',
+          topic: 'Gravitation',
+          chapter_reference: 'NCERT Class 11 Physics Chapter 8',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=8-15'
+        },
+        {
+          question: 'State Hooke’s Law for an elastic material within its proportional limit.',
+          answer: 'Stress is directly proportional to Strain',
+          explanation: 'Hooke’s Law states that within elastic limit, Stress ∝ Strain, or Stress / Strain = Modulus of Elasticity (E).',
+          topic: 'Mechanical Properties of Solids',
+          chapter_reference: 'NCERT Class 11 Physics Chapter 9',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=9-15'
+        },
+        {
+          question: 'State the First Law of Thermodynamics in equation form.',
+          answer: 'ΔQ = ΔU + ΔW (Heat added = Increase in internal energy + Work done)',
+          explanation: 'The first law of thermodynamics is an expression of the principle of conservation of energy: ΔQ = ΔU + PΔV.',
+          topic: 'Thermodynamics',
+          chapter_reference: 'NCERT Class 11 Physics Chapter 12',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=12-15'
+        }
+      ],
+      chemistry: [
+        {
+          question: 'What is the number of significant figures in 0.002500?',
+          answer: '4',
+          explanation: 'Leading zeros are not significant. Trailing zeros after a decimal point are significant. So in 0.002500, the significant digits are 2, 5, 0, 0 which gives 4 significant figures.',
+          topic: 'Some Basic Concepts of Chemistry',
+          chapter_reference: 'NCERT Class 11 Chemistry Chapter 1',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=1-15'
+        },
+        {
+          question: 'What is the azimuthal quantum number (l) for an electron in a 3p orbital?',
+          answer: '1',
+          explanation: 'For p orbitals, the azimuthal quantum number l = 1. The principal quantum number n = 3 for 3p orbital.',
+          topic: 'Structure of Atom',
+          chapter_reference: 'NCERT Class 11 Chemistry Chapter 2',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=2-15'
+        },
+        {
+          question: 'What is the shape and bond angle of methane (CH4) according to VSEPR theory?',
+          answer: 'Tetrahedral geometry with bond angle of 109.5°',
+          explanation: 'Carbon in CH4 is sp3 hybridized with 4 bonding pairs and 0 lone pairs, minimizing electron repulsion in a tetrahedral geometry.',
+          topic: 'Chemical Bonding and Molecular Structure',
+          chapter_reference: 'NCERT Class 11 Chemistry Chapter 4',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=4-15'
+        },
+        {
+          question: 'What is the conjugate acid of NH3 (ammonia)?',
+          answer: 'NH4+ (Ammonium ion)',
+          explanation: 'According to the Bronsted-Lowry concept, a conjugate acid is formed when a base accepts a proton (H+). NH3 + H+ → NH4+.',
+          topic: 'Equilibrium',
+          chapter_reference: 'NCERT Class 11 Chemistry Chapter 7',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=7-15'
+        },
+        {
+          question: 'What is the oxidation number of chromium in K2Cr2O7?',
+          answer: '+6',
+          explanation: '2(+1) + 2(Cr) + 7(-2) = 0 ⇒ 2 + 2(Cr) - 14 = 0 ⇒ 2(Cr) = 12 ⇒ Cr = +6.',
+          topic: 'Redox Reactions',
+          chapter_reference: 'NCERT Class 11 Chemistry Chapter 8',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=8-15'
+        },
+        {
+          question: 'What type of isomerism is shown by but-1-ene and but-2-ene?',
+          answer: 'Position isomerism',
+          explanation: 'But-1-ene and but-2-ene have the same carbon skeleton but differ in the position of the double bond (C=C), making them position isomers.',
+          topic: 'Organic Chemistry: Some Basic Principles and Techniques',
+          chapter_reference: 'NCERT Class 11 Chemistry Chapter 12',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=12-15'
+        }
+      ],
+      biology: [
+        {
+          question: 'Which of the following is not a characteristic of living organisms?',
+          answer: 'Isolation',
+          explanation: 'Living organisms show growth, reproduction, metabolism, response to stimuli, etc. Isolation is not a biological characteristic; in fact, organisms interact with their environment and other organisms.',
+          topic: 'The Living World',
+          chapter_reference: 'NCERT Class 11 Biology Chapter 1',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=1-15'
+        },
+        {
+          question: 'What is the function of the ribosome in a cell?',
+          answer: 'Protein synthesis',
+          explanation: 'Ribosomes are the site of protein synthesis in cells. They read mRNA and assemble amino acids into polypeptide chains.',
+          topic: 'Cell: The Unit of Life',
+          chapter_reference: 'NCERT Class 11 Biology Chapter 8',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=8-15'
+        },
+        {
+          question: 'Which enzyme is responsible for carbon fixation in C3 plants?',
+          answer: 'RuBisCO (Ribulose-1,5-bisphosphate carboxylase-oxygenase)',
+          explanation: 'RuBisCO catalyzes the first major step of carbon fixation in the Calvin cycle (C3 pathway), combining CO2 with ribulose 1,5-bisphosphate.',
+          topic: 'Photosynthesis in Higher Plants',
+          chapter_reference: 'NCERT Class 11 Biology Chapter 13',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=13-15'
+        },
+        {
+          question: 'What is the end product of glycolysis under aerobic conditions?',
+          answer: 'Pyruvic acid (Pyruvate)',
+          explanation: 'In glycolysis, one molecule of glucose is cleaved through 10 enzymatic reactions to yield two molecules of pyruvic acid, along with 2 ATP and 2 NADH.',
+          topic: 'Respiration in Plants',
+          chapter_reference: 'NCERT Class 11 Biology Chapter 14',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=14-15'
+        },
+        {
+          question: 'Which plant hormone is primarily responsible for apical dominance?',
+          answer: 'Auxin (Indole-3-acetic acid)',
+          explanation: 'Auxins produced at the shoot tip inhibit the growth of lateral (axillary) buds, a phenomenon called apical dominance.',
+          topic: 'Plant Growth and Development',
+          chapter_reference: 'NCERT Class 11 Biology Chapter 15',
+          class_level: 11,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=15-15'
+        }
+      ]
+    },
+    class12: {
+      mathematics: [
+        {
+          question: 'What is the principal value of sin⁻¹(-1/2)?',
+          answer: '-π/6',
+          explanation: 'The principal value branch of sin⁻¹x is [-π/2, π/2]. Since sin(-π/6) = -1/2, the principal value of sin⁻¹(-1/2) = -π/6.',
+          topic: 'Inverse Trigonometric Functions',
+          chapter_reference: 'NCERT Class 12 Maths Chapter 2',
+          class_level: 12,
+          source: 'https://ncert.nic.in/textbook.php?jemh1=2-15'
+        }
+      ],
+      physics: [
+        {
+          question: 'What is the formula for electric potential due to a point charge?',
+          answer: 'V = kQ/r',
+          explanation: 'Electric potential V due to a point charge Q at distance r is given by V = kQ/r, where k = 1/(4πε₀) is Coulomb\'s constant.',
+          topic: 'Electrostatics',
+          chapter_reference: 'NCERT Class 12 Physics Chapter 1',
+          class_level: 12,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=1-15'
+        }
+      ],
+      chemistry: [
+        {
+          question: 'What is the IUPAC name of CH₃CH₂CH₂CH₂OH?',
+          answer: 'Butan-1-ol',
+          explanation: 'The compound is a straight chain alcohol with 4 carbon atoms and the OH group on the first carbon, hence butan-1-ol.',
+          topic: 'Alcohols, Phenols and Ethers',
+          chapter_reference: 'NCERT Class 12 Chemistry Chapter 11',
+          class_level: 12,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=11-15'
+        }
+      ],
+      biology: [
+        {
+          question: 'Which part of the flower develops into the fruit after fertilization?',
+          answer: 'Ovary',
+          explanation: 'After fertilization, the ovary of the flower develops into the fruit, while the ovules develop into seeds.',
+          topic: 'Sexual Reproduction in Flowering Plants',
+          chapter_reference: 'NCERT Class 12 Biology Chapter 2',
+          class_level: 12,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=2-15'
+        }
+      ]
+    },
+    class9: {
+      mathematics: [
+        {
+          question: 'What is the value of x² + 1/x² if x + 1/x = 3?',
+          answer: '7',
+          explanation: '(x + 1/x)² = x² + 2 + 1/x² = 9, therefore x² + 1/x² = 9 - 2 = 7.',
+          topic: 'Polynomials',
+          chapter_reference: 'NCERT Class 9 Maths Chapter 2',
+          class_level: 9,
+          source: 'https://ncert.nic.in/textbook.php?jemh1=2-15'
+        }
+      ],
+      physics: [
+        {
+          question: 'What is the SI unit of gravitational constant G?',
+          answer: 'N·m²/kg²',
+          explanation: 'From Newton\'s law of gravitation F = GMm/r², we get G = Fr²/Mm. Substituting SI units: N·m²/kg².',
+          topic: 'Gravitation',
+          chapter_reference: 'NCERT Class 9 Science Chapter 10',
+          class_level: 9,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=10-15'
+        }
+      ],
+      chemistry: [
+        {
+          question: 'What is the chemical formula of rust?',
+          answer: 'Fe₂O₃·xH₂O',
+          explanation: 'Rust is hydrated iron(III) oxide, formed when iron reacts with oxygen and water. Its approximate formula is Fe₂O₃·xH₂O.',
+          topic: 'Atoms and Molecules',
+          chapter_reference: 'NCERT Class 9 Science Chapter 3',
+          class_level: 9,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=3-15'
+        }
+      ],
+      biology: [
+        {
+          question: 'Which organelle is known as the \"powerhouse of the cell\"?',
+          answer: 'Mitochondria',
+          explanation: 'Mitochondria are known as the powerhouse of the cell because they carry out cellular respiration and produce ATP, the energy currency of the cell.',
+          topic: 'The Fundamental Unit of Life',
+          chapter_reference: 'NCERT Class 9 Science Chapter 5',
+          class_level: 9,
+          source: 'https://ncert.nic.in/textbook.php?iesc1=5-15'
         }
       ]
     }
@@ -266,6 +566,130 @@ function quizRoutes(supabase, openai) {
     return `💡 NCERT Clue: Focus on the core definition, governing laws, and standard formulas outlined in ${row.chapter_reference || row.topic || 'the NCERT curriculum'}.`;
   }
 
+  // Generate questions using Gemini (primary) or OpenAI (fallback)
+  async function generateAIQuestions(params) {
+    const { classLevel, subject, difficulty, count, prompt = '' } = params;
+
+    const subjectDisplayMap = {
+      mathematics: 'Mathematics',
+      physics: 'Physics',
+      chemistry: 'Chemistry',
+      biology: 'Biology',
+      science: 'Science',
+      all: 'Science & Mathematics'
+    };
+    const subjectDisplay = subjectDisplayMap[subject] || subject;
+
+    const questionPrompt = `You are an expert NCERT question generator for Class ${classLevel} ${subjectDisplay} (${difficulty} difficulty).
+Generate exactly ${count} fresh multiple-choice questions covering ${prompt || 'key concepts from the NCERT curriculum'}.
+
+Rules:
+- Each question must be unique, conceptual, and NCERT Class ${classLevel} syllabus aligned
+- Difficulty: ${difficulty} (basic=factual recall, medium=application, hard=analysis/HOTS)
+- Provide 4 distinct options per question with ONLY ONE correct answer
+- correctAnswer is a 0-based index (0=A, 1=B, 2=C, 3=D)
+- Include a concise explanation and a pedagogical hint
+
+Return ONLY valid JSON in this exact structure:
+{
+  "questions": [
+    {
+      "question": "Question text?",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctAnswer": 0,
+      "explanation": "Why the answer is correct (2-3 sentences)",
+      "hint": "💡 Pedagogical clue without giving away the answer",
+      "topic": "NCERT Topic Name",
+      "chapterReference": "NCERT Class ${classLevel} ${subjectDisplay} Chapter N: Chapter Name",
+      "source": "https://ncert.nic.in/textbook.php",
+      "classLevel": ${classLevel},
+      "difficulty": "${difficulty}"
+    }
+  ]
+}`;
+
+    // --- Try Gemini first (primary) ---
+    if (gemini) {
+      try {
+        console.log(`[Quiz Gemini] Generating ${count} questions | Class ${classLevel} | ${subjectDisplay} | ${difficulty}`);
+        const result = await gemini.generateContent(questionPrompt);
+        const text = result.response.text();
+
+        // Extract JSON from markdown code fences if present
+        const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, text];
+        const jsonStr = (jsonMatch[1] || text).trim();
+        const parsed = JSON.parse(jsonStr);
+
+        if (parsed.questions && Array.isArray(parsed.questions) && parsed.questions.length > 0) {
+          console.log(`[Quiz Gemini] ✅ Got ${parsed.questions.length} questions`);
+          return parsed.questions.map((q, idx) => ({
+            id: `gemini-${Date.now()}-${idx}`,
+            question: q.question || `Class ${classLevel} ${subjectDisplay} question`,
+            options: Array.isArray(q.options) && q.options.length >= 4
+              ? q.options.slice(0, 4)
+              : ['Option A', 'Option B', 'Option C', 'Option D'],
+            correctAnswer: typeof q.correctAnswer === 'number' && q.correctAnswer >= 0 && q.correctAnswer <= 3
+              ? q.correctAnswer
+              : 0,
+            explanation: q.explanation || `Refer to NCERT Class ${classLevel} ${subjectDisplay} for details.`,
+            hint: q.hint || `💡 Focus on NCERT core concepts for Class ${classLevel}.`,
+            topic: q.topic || 'Core Concepts',
+            chapterReference: q.chapterReference || `NCERT Class ${classLevel} ${subjectDisplay}`,
+            source: q.source || 'https://ncert.nic.in/textbook.php',
+            subject: subjectDisplay,
+            classLevel: parseInt(q.classLevel, 10) || classLevel,
+            curriculum: 'NCERT',
+            difficulty: q.difficulty || difficulty,
+          }));
+        }
+      } catch (err) {
+        console.warn('[Quiz Gemini] Failed, trying OpenAI fallback:', err.message);
+      }
+    }
+
+    // --- Fallback: OpenAI ---
+    if (openai) {
+      try {
+        console.log(`[Quiz OpenAI] Generating ${count} questions as fallback`);
+        const response = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: questionPrompt },
+            { role: 'user', content: `Generate ${count} MCQs for Class ${classLevel} ${subjectDisplay}. Difficulty: ${difficulty}.` }
+          ],
+          temperature: 0.4,
+          response_format: { type: 'json_object' }
+        });
+
+        const parsed = JSON.parse(response.choices[0].message.content);
+        if (parsed.questions && Array.isArray(parsed.questions)) {
+          return parsed.questions.map((q, idx) => ({
+            id: `openai-${Date.now()}-${idx}`,
+            question: q.question || `Sample ${subjectDisplay} question`,
+            options: Array.isArray(q.options) && q.options.length >= 4 ? q.options.slice(0, 4) : ['Option A', 'Option B', 'Option C', 'Option D'],
+            correctAnswer: typeof q.correctAnswer === 'number' && q.correctAnswer >= 0 && q.correctAnswer <= 3 ? q.correctAnswer : 0,
+            explanation: q.explanation || `Refer to NCERT Class ${classLevel} ${subjectDisplay}.`,
+            hint: q.hint || `💡 Focus on core concepts.`,
+            topic: q.topic || 'Core Concepts',
+            chapterReference: q.chapterReference || `NCERT Class ${classLevel} ${subjectDisplay}`,
+            source: q.source || 'https://ncert.nic.in/textbook.php',
+            subject: subjectDisplay,
+            classLevel: parseInt(q.classLevel, 10) || classLevel,
+            curriculum: 'NCERT',
+            difficulty: q.difficulty || difficulty,
+          }));
+        }
+      } catch (err) {
+        console.warn('[Quiz OpenAI] Also failed:', err.message);
+      }
+    }
+
+    if (!gemini && !openai) {
+      console.warn('[Quiz AI] No AI provider configured (no Gemini or OpenAI key)');
+    }
+    return [];
+  }
+
   // Transform a row into a complete randomized MCQ question
   function buildQuizQuestion(row, idx, siblingPool = []) {
     const correctAnswer = row.answer || 'Standard answer';
@@ -370,6 +794,31 @@ function quizRoutes(supabase, openai) {
         }
       } catch (err) {
         console.warn('[Quiz Realtime] Supabase query failed, falling back:', err.message);
+      }
+    }
+
+    // 3. Use AI to top-up or fully generate questions when DB has insufficient data
+    if (questions.length < count && (gemini || openai)) {
+      try {
+        const needed = count - questions.length;
+        const dbCount = questions.length;
+        const aiQuestions = await generateAIQuestions({
+          classLevel: parsedClass,
+          subject: cleanSubject,
+          difficulty: difficulty,
+          count: needed,
+          prompt: topic || ''
+        });
+
+        if (aiQuestions && aiQuestions.length > 0) {
+          questions = [...questions, ...aiQuestions];
+          // Determine source label: detect if Gemini or OpenAI generated
+          const aiLabel = gemini ? 'gemini-generated' : 'openai-generated';
+          source = dbCount === 0 ? aiLabel : `supabase-realtime+${aiLabel}`;
+          console.log(`[Quiz AI] Added ${aiQuestions.length} AI questions (${aiLabel})`);
+        }
+      } catch (err) {
+        console.warn('[Quiz AI] Generation failed, continuing with other sources:', err.message);
       }
     }
 
@@ -606,14 +1055,16 @@ function quizRoutes(supabase, openai) {
       classes: [
         { id: 10, label: 'Class 10 (NCERT Sets)', count: 30 },
         { id: 9, label: 'Class 9 (NCERT Sets)', count: 15 },
-        { id: 'all', label: 'All Classes', count: 45 },
+        { id: 11, label: 'Class 11 (NCERT Sets)', count: 20 },
+        { id: 12, label: 'Class 12 (NCERT Sets)', count: 10 },
+        { id: 'all', label: 'All Classes', count: 75 },
       ],
       subjects: [
-        { id: 'all', label: 'All Subjects' },
-        { id: 'mathematics', label: 'Mathematics' },
-        { id: 'physics', label: 'Physics' },
-        { id: 'chemistry', label: 'Chemistry' },
-        { id: 'biology', label: 'Biology' },
+        { id: 'all', label: 'All Subjects', count: 75 },
+        { id: 'mathematics', label: 'Mathematics', count: 20 },
+        { id: 'physics', label: 'Physics', count: 20 },
+        { id: 'chemistry', label: 'Chemistry', count: 20 },
+        { id: 'biology', label: 'Biology', count: 15 },
       ],
       source: 'fallback',
     });

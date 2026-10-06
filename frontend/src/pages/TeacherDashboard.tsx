@@ -26,11 +26,12 @@ import {
   MenuItem,
   Select,
   IconButton,
-  Tooltip,
   Alert,
   Snackbar,
   Tabs,
   Tab,
+  FormControl,
+  InputLabel,
   Accordion,
   AccordionSummary,
   AccordionDetails,
@@ -46,8 +47,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import SettingsBackupRestoreIcon from '@mui/icons-material/SettingsBackupRestore';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import KeyIcon from '@mui/icons-material/Key';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import VideoLibraryIcon from '@mui/icons-material/VideoLibrary';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -62,22 +61,18 @@ interface StudentRecord {
   studentId: string;
   name: string;
   email: string;
-  temporaryPassword: string;
   classLevel: number;
   section: string;
   status: 'active' | 'removed' | string;
   teacherRemark: string;
   removalReason: string;
-  score: number;
-  progress: number;
-  activeCourses: number;
   dateAdded: string;
   rank?: number;
-  previousRank?: number;
-  rankChange?: number;
-  accuracy?: number;
+  accuracy?: number | null;
   totalSolved?: number;
-  badge?: string;
+  assessmentCount?: number;
+  averageTimeSeconds?: number | null;
+  weakPoints?: string[];
 }
 
 interface AttachedQuestion {
@@ -120,6 +115,7 @@ const TeacherDashboard: React.FC = () => {
 
   // Tab 1: Students
   const [students, setStudents] = useState<StudentRecord[]>([]);
+  const [studentsError, setStudentsError] = useState('');
   const [openAddDialog, setOpenAddDialog] = useState(false);
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
@@ -128,6 +124,17 @@ const TeacherDashboard: React.FC = () => {
   const [newClassLevel, setNewClassLevel] = useState<number>(10);
   const [newSection, setNewSection] = useState('Section A (Maths & Science)');
   const [newRemark, setNewRemark] = useState('');
+  const studentBatchOptions = newClassLevel <= 10
+    ? [
+      { value: 'Section A (Maths & Science)', label: 'Section A (Maths & Science)' },
+      { value: 'Section B (Science Honors)', label: 'Section B (Science Honors)' },
+    ]
+    : [
+      { value: 'PCM Stream', label: 'PCM Stream (Physics, Chemistry, Math)' },
+      { value: 'PCB Stream', label: 'PCB Stream (Physics, Chemistry, Biology)' },
+      { value: 'Commerce Stream', label: 'Commerce Stream' },
+      { value: 'Humanities Stream', label: 'Humanities Stream' },
+    ];
 
   // Remove Student Dialog
   const [openRemoveDialog, setOpenRemoveDialog] = useState(false);
@@ -188,10 +195,14 @@ const TeacherDashboard: React.FC = () => {
   // Tab 3: Monthly NCERT Assessments & Step Marking System
   const [monthlyTest, setMonthlyTest] = useState<any>(null);
   const [monthlyTestLoading, setMonthlyTestLoading] = useState(false);
+  const [monthlyTestError, setMonthlyTestError] = useState('');
   const [openPublishTestDialog, setOpenPublishTestDialog] = useState(false);
   const [newTestTitle, setNewTestTitle] = useState('Official Monthly Board Test (Arihant + NCERT)');
   const [newTestSubject, setNewTestSubject] = useState('science');
   const [newTestClass, setNewTestClass] = useState(10);
+  const monthlyTestSubjects = newTestClass >= 11
+    ? ['physics', 'chemistry', 'biology', 'maths']
+    : ['science', 'maths'];
   const [newTestDuration, setNewTestDuration] = useState(45);
   const [newTestMarks, setNewTestMarks] = useState(10);
   const [newTestDifficulty, setNewTestDifficulty] = useState('all');
@@ -202,19 +213,21 @@ const TeacherDashboard: React.FC = () => {
 
   // Teacher feedback store state & remedial test dialog
   const [teacherFeedbacks, setTeacherFeedbacks] = useState<any[]>([]);
+  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, string>>({});
   const [selectedFeedbackForRemedial, setSelectedFeedbackForRemedial] = useState<any | null>(null);
   const [openRemedialDialog, setOpenRemedialDialog] = useState(false);
   const [remedialDifficulty, setRemedialDifficulty] = useState('medium');
   const [remedialNumQuestions, setRemedialNumQuestions] = useState(4);
 
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     try {
       const res = await teacherAPI.getStudents();
       if (res?.data?.students) setStudents(res.data.students);
-    } catch {
-      // ignore
+      setStudentsError('');
+    } catch (error: any) {
+      setStudentsError(error?.response?.data?.error || 'Could not load the live student roster.');
     }
-  };
+  }, []);
 
   const fetchDoubts = async () => {
     try {
@@ -244,9 +257,19 @@ const TeacherDashboard: React.FC = () => {
       const res = await examPrepAPI.getMonthlyTest(newTestClass, newTestSubject);
       if (res?.data?.test) {
         setMonthlyTest(res.data.test);
+        setMonthlyTestError('');
+      } else {
+        setMonthlyTest(null);
+        setMonthlyTestError('');
       }
-    } catch {
-      // ignore
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        setMonthlyTest(null);
+        setMonthlyTestError('');
+      } else {
+        setMonthlyTestError(error?.response?.data?.error || 'Could not load the published assessment.');
+        console.error('Failed to load published assessment:', error);
+      }
     } finally {
       setMonthlyTestLoading(false);
     }
@@ -258,10 +281,24 @@ const TeacherDashboard: React.FC = () => {
       if (res?.data?.feedbacks) {
         setTeacherFeedbacks(res.data.feedbacks);
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error('Failed to load assessment submissions:', error);
     }
   }, []);
+
+  const handleSaveAssessmentFeedback = async (submission: any) => {
+    const feedback = (feedbackDrafts[submission.id] ?? submission.teacherFeedback ?? '').trim();
+    if (!feedback) return;
+    try {
+      await examPrepAPI.saveTeacherFeedback(submission.id, feedback);
+      setToastMessage(`Feedback saved for ${submission.studentName}.`);
+      setToastOpen(true);
+      await fetchTeacherFeedbacks();
+    } catch (err: any) {
+      setToastMessage(err?.response?.data?.error || 'Could not save student feedback.');
+      setToastOpen(true);
+    }
+  };
 
   const handleAIGenerateMonthlyTest = async () => {
     try {
@@ -365,7 +402,22 @@ const TeacherDashboard: React.FC = () => {
     fetchDBQuestions();
     fetchMonthlyTest();
     fetchTeacherFeedbacks();
-  }, [fetchDBQuestions, fetchMonthlyTest, fetchTeacherFeedbacks]);
+  }, [fetchDBQuestions, fetchMonthlyTest, fetchStudents, fetchTeacherFeedbacks]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(fetchStudents, 15000);
+    return () => window.clearInterval(intervalId);
+  }, [fetchStudents]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(fetchTeacherFeedbacks, 15000);
+    return () => window.clearInterval(intervalId);
+  }, [fetchTeacherFeedbacks]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(fetchMonthlyTest, 15000);
+    return () => window.clearInterval(intervalId);
+  }, [fetchMonthlyTest]);
 
   // Handle Add Student
   const handleOpenAddStudent = () => {
@@ -373,7 +425,10 @@ const TeacherDashboard: React.FC = () => {
     setNewEmail('');
     setNewStudentId(`ROLL-${Math.floor(1000 + Math.random() * 9000)}`);
     setNewPassword(`Student#${Math.floor(1000 + Math.random() * 9000)}`);
-    setNewRemark('Enrolled in Class 10 NCERT Board Preparation');
+    setNewClassLevel(10);
+    setNewSection('Section A (Maths & Science)');
+    // Set dynamic remark based on class level and section
+    setNewRemark('Enrolled in Class 10 Section A (Maths & Science) NCERT preparation.');
     setOpenAddDialog(true);
   };
 
@@ -390,7 +445,7 @@ const TeacherDashboard: React.FC = () => {
         initialRemark: newRemark.trim(),
       });
       if (res?.data?.student) {
-        setToastMessage(res.data.message || 'Student enrolled successfully!');
+        setToastMessage(`${res.data.message || 'Student enrolled successfully!'} Initial password: ${newPassword}`);
         setToastOpen(true);
         setOpenAddDialog(false);
         fetchStudents();
@@ -668,12 +723,6 @@ const TeacherDashboard: React.FC = () => {
     }
   };
 
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    setToastMessage(`${label} copied to clipboard!`);
-    setToastOpen(true);
-  };
-
   return (
     <Box sx={{ pb: 8, maxWidth: 1200, mx: 'auto', px: { xs: 1, sm: 2 } }}>
       {/* Top Banner */}
@@ -695,7 +744,7 @@ const TeacherDashboard: React.FC = () => {
           scrollButtons="auto"
           sx={{ px: 2, '& .MuiTab-root': { fontWeight: 700, textTransform: 'none', py: 2, fontSize: '0.95rem' } }}
         >
-          <Tab icon={<PeopleIcon />} iconPosition="start" label={`Students & Credentials (${students.length})`} />
+          <Tab icon={<PeopleIcon />} iconPosition="start" label={`Student Directory (${students.length})`} />
           <Tab icon={<VideoLibraryIcon />} iconPosition="start" label={`Doubt Queue & Video Uploads (${doubts.length})`} />
           <Tab icon={<StorageIcon />} iconPosition="start" label={`Curriculum Database Manager (${dbQuestions.length})`} />
           <Tab icon={<FactCheckIcon />} iconPosition="start" label="Monthly NCERT Assessments & Step Marking" />
@@ -721,78 +770,80 @@ const TeacherDashboard: React.FC = () => {
             </Button>
           </Box>
 
+          {studentsError && <Alert severity="error" sx={{ mb: 2 }}>{studentsError}</Alert>}
+
           {/* Student Table with Dynamic Live Ranks */}
-          <Card sx={{ borderRadius: 3.5, border: '1px solid #e2e8f0', mb: 4 }}>
-            <TableContainer>
-              <Table>
+          <Card sx={{ borderRadius: 3.5, border: '1px solid #e2e8f0', mb: 4, overflow: 'hidden' }}>
+            <TableContainer sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 1340, tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: 130 }} />
+                  <col style={{ width: 250 }} />
+                  <col style={{ width: 190 }} />
+                  <col style={{ width: 170 }} />
+                  <col style={{ width: 145 }} />
+                  <col style={{ width: 270 }} />
+                  <col style={{ width: 185 }} />
+                </colgroup>
                 <TableHead sx={{ bgcolor: '#f8fafc' }}>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 800 }}>Class Rank & Momentum</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Student & Credentials</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Class / Section</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Live Class Rank</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Student & Account</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Class / Batch</TableCell>
                     <TableCell sx={{ fontWeight: 800 }}>Answer Correctness</TableCell>
                     <TableCell sx={{ fontWeight: 800 }}>Status</TableCell>
-                    <TableCell sx={{ fontWeight: 800, minWidth: 260 }}>Teacher Reason / Remark</TableCell>
-                    <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>Actions</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Teacher Reason / Remark</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
-                <TableBody>
+                <TableBody sx={{ '& .MuiTableCell-root': { verticalAlign: 'middle' } }}>
+                  {students.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                        {studentsError || 'No students are enrolled in the live roster yet.'}
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {students.map((student) => {
                     const isRemoved = student.status === 'removed';
-                    const rankNum = student.rank || 3;
-                    const change = student.rankChange || 0;
+                    const rankNum = student.rank;
                     return (
                       <TableRow key={student.id} hover sx={{ bgcolor: isRemoved ? 'rgba(254, 242, 242, 0.4)' : undefined }}>
                         <TableCell>
                           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                             <Chip
-                              label={rankNum === 1 ? '🥇 Rank #1' : rankNum === 2 ? '🥈 Rank #2' : rankNum === 3 ? '🥉 Rank #3' : `Rank #${rankNum}`}
+                              label={rankNum ? `Rank #${rankNum}` : 'Not ranked'}
                               size="small"
-                              color={rankNum === 1 ? 'warning' : rankNum <= 3 ? 'primary' : 'default'}
+                              color={rankNum === 1 ? 'warning' : rankNum ? 'primary' : 'default'}
                               sx={{ fontWeight: 900, fontSize: '0.8rem' }}
                             />
-                            {change > 0 && (
-                              <Chip label={`▲ +${change}`} size="small" color="success" sx={{ height: 20, fontSize: '0.7rem', fontWeight: 800 }} />
-                            )}
-                            {change < 0 && (
-                              <Chip label={`▼ ${change}`} size="small" color="error" sx={{ height: 20, fontSize: '0.7rem', fontWeight: 800 }} />
-                            )}
                           </Stack>
                         </TableCell>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-                            <Avatar sx={{ bgcolor: isRemoved ? '#fee2e2' : '#dbeafe', color: isRemoved ? '#dc2626' : '#2563eb', fontWeight: 700 }}>
+                        <TableCell sx={{ verticalAlign: 'middle' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+                            <Avatar sx={{ flexShrink: 0, bgcolor: isRemoved ? '#fee2e2' : '#dbeafe', color: isRemoved ? '#dc2626' : '#2563eb', fontWeight: 700 }}>
                               {student.name.charAt(0)}
                             </Avatar>
-                            <Box>
-                              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{student.name}</Typography>
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            <Box sx={{ minWidth: 0 }}>
+                              <Typography variant="subtitle2" sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{student.name}</Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>
                                 {student.email} • <strong>{student.studentId}</strong>
                               </Typography>
-                              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mt: 0.5 }}>
-                                <KeyIcon sx={{ fontSize: 13, color: '#64748b' }} />
-                                <Typography variant="caption" sx={{ fontFamily: 'monospace', bgcolor: '#f1f5f9', px: 0.8, py: 0.2, borderRadius: 1 }}>
-                                  {student.temporaryPassword}
-                                </Typography>
-                                <Tooltip title="Copy Password">
-                                  <IconButton size="small" onClick={() => copyToClipboard(student.temporaryPassword, 'Password')} sx={{ p: 0.2 }}>
-                                    <ContentCopyIcon sx={{ fontSize: 13 }} />
-                                  </IconButton>
-                                </Tooltip>
-                              </Stack>
                             </Box>
                           </Box>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ verticalAlign: 'middle' }}>
                           <Chip label={`Class ${student.classLevel}`} size="small" color="primary" variant="outlined" sx={{ fontWeight: 700, mb: 0.5 }} />
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{student.section}</Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>
+                            {student.section || 'Batch not set'}
+                          </Typography>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2" sx={{ fontWeight: 800, color: (student.accuracy || student.score || 80) >= 80 ? '#16a34a' : '#ea580c' }}>
-                            {student.accuracy || student.score || 80}% Accuracy
+                          <Typography variant="body2" sx={{ fontWeight: 800, color: student.accuracy !== null && student.accuracy !== undefined ? (student.accuracy >= 80 ? '#16a34a' : '#ea580c') : '#64748b' }}>
+                            {student.accuracy === null || student.accuracy === undefined ? 'No results yet' : `${student.accuracy}% Accuracy`}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {student.totalSolved || 20} Solved • {student.badge || 'Active'}
+                            {student.assessmentCount || 0} tests • {student.totalSolved || 0} questions
                           </Typography>
                         </TableCell>
                         <TableCell>
@@ -808,13 +859,13 @@ const TeacherDashboard: React.FC = () => {
                             <Typography variant="caption" sx={{ color: '#334155' }}>{student.teacherRemark || 'No remarks recorded.'}</Typography>
                           )}
                         </TableCell>
-                        <TableCell sx={{ textAlign: 'right' }}>
+                        <TableCell sx={{ textAlign: 'right', verticalAlign: 'middle' }}>
                           {isRemoved ? (
-                            <Button variant="outlined" size="small" color="success" startIcon={<SettingsBackupRestoreIcon />} onClick={() => handleReactivate(student)} sx={{ fontWeight: 700, textTransform: 'none' }}>
+                            <Button variant="outlined" size="small" color="success" startIcon={<SettingsBackupRestoreIcon />} onClick={() => handleReactivate(student)} sx={{ fontWeight: 700, textTransform: 'none', whiteSpace: 'nowrap' }}>
                               Reactivate
                             </Button>
                           ) : (
-                            <Button variant="outlined" size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleOpenRemove(student)} sx={{ fontWeight: 700, textTransform: 'none' }}>
+                            <Button variant="outlined" size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleOpenRemove(student)} sx={{ fontWeight: 700, textTransform: 'none', whiteSpace: 'nowrap' }}>
                               Remove Student
                             </Button>
                           )}
@@ -1104,14 +1155,8 @@ const TeacherDashboard: React.FC = () => {
                 onChange={(e) => {
                   const cl = Number(e.target.value);
                   setNewTestClass(cl);
-                  let targetSubj = newTestSubject;
-                  if (cl >= 11 && targetSubj === 'science') {
-                    targetSubj = 'physics';
-                    setNewTestSubject('physics');
-                  }
-                  examPrepAPI.getMonthlyTest(cl, targetSubj).then((res: any) => {
-                    if (res?.data?.test) setMonthlyTest(res.data.test);
-                  });
+                  if (cl >= 11 && newTestSubject === 'science') setNewTestSubject('physics');
+                  if (cl <= 10 && ['physics', 'chemistry', 'biology'].includes(newTestSubject)) setNewTestSubject('science');
                 }}
                 sx={{ fontWeight: 800, minWidth: 110, bgcolor: '#f8fafc', borderRadius: 2 }}
               >
@@ -1121,24 +1166,27 @@ const TeacherDashboard: React.FC = () => {
                 <MenuItem value={12}>Class 12</MenuItem>
               </Select>
 
-              <Select
-                size="small"
-                value={newTestSubject}
-                onChange={(e) => {
-                  const sub = e.target.value;
-                  setNewTestSubject(sub);
-                  examPrepAPI.getMonthlyTest(newTestClass, sub).then((res: any) => {
-                    if (res?.data?.test) setMonthlyTest(res.data.test);
-                  });
-                }}
-                sx={{ fontWeight: 800, minWidth: 130, bgcolor: '#f8fafc', borderRadius: 2, textTransform: 'capitalize' }}
-              >
-                {newTestClass <= 10 && <MenuItem value="science">Science</MenuItem>}
-                <MenuItem value="maths">Mathematics</MenuItem>
-                <MenuItem value="physics">Physics</MenuItem>
-                <MenuItem value="chemistry">Chemistry</MenuItem>
-                <MenuItem value="biology">Biology</MenuItem>
-              </Select>
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel id="monthly-test-subject-filter-label">Subject</InputLabel>
+                <Select
+                  labelId="monthly-test-subject-filter-label"
+                  label="Subject"
+                  value={newTestSubject}
+                  onChange={(e) => setNewTestSubject(String(e.target.value))}
+                  sx={{ fontWeight: 800, bgcolor: '#f8fafc', borderRadius: 2, textTransform: 'capitalize' }}
+                >
+                  {monthlyTestSubjects.map(subject => (
+                    <MenuItem key={subject} value={subject}>
+                      {subject === 'maths' ? 'Mathematics' : subject[0].toUpperCase() + subject.slice(1)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {newTestClass >= 11 && (
+                <Typography variant="caption" sx={{ color: '#64748b', maxWidth: 220 }}>
+                  Choose the subject for this Class {newTestClass} stream.
+                </Typography>
+              )}
 
               <Button
                 variant="outlined"
@@ -1159,6 +1207,20 @@ const TeacherDashboard: React.FC = () => {
               </Button>
             </Stack>
           </Box>
+
+          {monthlyTestError && (
+            <Alert
+              severity="error"
+              sx={{ mb: 3 }}
+              action={
+                <Button color="inherit" size="small" onClick={fetchMonthlyTest} disabled={monthlyTestLoading}>
+                  Retry
+                </Button>
+              }
+            >
+              {monthlyTestError}
+            </Alert>
+          )}
 
           {/* Active Monthly Assessment Summary Card */}
           {monthlyTest && (
@@ -1292,22 +1354,26 @@ const TeacherDashboard: React.FC = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {students.map((student) => {
-                    const rankNum = student.rank || 3;
-                    const change = student.rankChange || 0;
+                  {students.filter((student) => student.status === 'active').length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                        {studentsError || 'No active students in the live roster yet.'}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {students.filter((student) => student.status === 'active').map((student) => {
+                    const rankNum = student.rank;
                     return (
                       <TableRow key={student.id} hover>
                         <TableCell>
                           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                             <Chip
                               icon={rankNum === 1 ? <EmojiEventsIcon sx={{ fontSize: '16px !important' }} /> : undefined}
-                              label={rankNum === 1 ? '🥇 Rank #1' : rankNum === 2 ? '🥈 Rank #2' : rankNum === 3 ? '🥉 Rank #3' : `Rank #${rankNum}`}
+                              label={rankNum ? `Rank #${rankNum}` : 'Not ranked'}
                               size="small"
-                              color={rankNum === 1 ? 'warning' : rankNum <= 3 ? 'primary' : 'default'}
+                              color={rankNum === 1 ? 'warning' : rankNum ? 'primary' : 'default'}
                               sx={{ fontWeight: 900 }}
                             />
-                            {change > 0 && <Chip label={`▲ +${change}`} size="small" color="success" sx={{ height: 20, fontSize: '0.7rem', fontWeight: 800 }} />}
-                            {change < 0 && <Chip label={`▼ ${change}`} size="small" color="error" sx={{ height: 20, fontSize: '0.7rem', fontWeight: 800 }} />}
                           </Stack>
                         </TableCell>
                         <TableCell>
@@ -1315,10 +1381,12 @@ const TeacherDashboard: React.FC = () => {
                           <Typography variant="caption" color="text.secondary">{student.studentId} • Class {student.classLevel}</Typography>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2" sx={{ fontWeight: 800, color: (student.accuracy || 80) >= 80 ? '#16a34a' : '#ea580c' }}>
-                            {student.accuracy || 80}% Accuracy
+                          <Typography variant="body2" sx={{ fontWeight: 800, color: student.accuracy !== null && student.accuracy !== undefined ? (student.accuracy >= 80 ? '#16a34a' : '#ea580c') : '#64748b' }}>
+                            {student.accuracy === null || student.accuracy === undefined ? 'No results yet' : `${student.accuracy}% Accuracy`}
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">{student.totalSolved || 20} Questions Evaluated</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {student.assessmentCount || 0} tests · {student.averageTimeSeconds == null ? 'No time recorded' : `${Math.floor(student.averageTimeSeconds / 60)}m ${student.averageTimeSeconds % 60}s average`}
+                          </Typography>
                         </TableCell>
                         <TableCell>
                           <Box sx={{ p: 1.2, bgcolor: '#f5f3ff', borderRadius: 2, border: '1px solid #ddd6fe' }}>
@@ -1326,11 +1394,11 @@ const TeacherDashboard: React.FC = () => {
                               <AutoAwesomeIcon sx={{ fontSize: 14 }} /> Unique Remedial Target for {student.name}:
                             </Typography>
                             <Typography variant="caption" sx={{ color: '#4c1d95', display: 'block' }}>
-                              {(student.accuracy || 80) < 75
-                                ? '• Priority: NCERT Chapter 4 (Quadratic Discriminant Step Rigor) & SI Unit notations on Electricity numericals.'
-                                : (student.accuracy || 80) < 90
-                                ? '• Priority: NCERT Exemplar optics ray diagrams and sign convention step-marking compliance.'
-                                : '• Advanced Mastery: Solving Board Exemplar high-order thinking problems with 100% step score.'}
+                              {student.weakPoints?.length
+                                ? `Review: ${student.weakPoints.join(', ')}`
+                                : student.assessmentCount
+                                  ? 'No weak points were recorded in submitted assessments.'
+                                  : 'Remedial targets will appear after this student submits an assessment.'}
                             </Typography>
                           </Box>
                         </TableCell>
@@ -1398,6 +1466,10 @@ const TeacherDashboard: React.FC = () => {
                           <Typography variant="caption" color="text.secondary">
                             {fb.stepAuditSummary || `${fb.percentage}% Accuracy`}
                           </Typography>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Submitted {new Date(fb.timestamp).toLocaleString()} ·
+                            {' '}{Math.floor((fb.timeTakenSeconds || 0) / 60)}m {(fb.timeTakenSeconds || 0) % 60}s
+                          </Typography>
                         </TableCell>
                         <TableCell>
                           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
@@ -1431,6 +1503,29 @@ const TeacherDashboard: React.FC = () => {
                           )}
                         </TableCell>
                         <TableCell sx={{ textAlign: 'right' }}>
+                          <TextField
+                            size="small"
+                            fullWidth
+                            multiline
+                            minRows={2}
+                            maxRows={4}
+                            label="Feedback for student"
+                            value={feedbackDrafts[fb.id] ?? fb.teacherFeedback ?? ''}
+                            onChange={(event) => setFeedbackDrafts((previous) => ({
+                              ...previous,
+                              [fb.id]: event.target.value,
+                            }))}
+                            sx={{ mb: 1, minWidth: 220, textAlign: 'left' }}
+                          />
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            disabled={!(feedbackDrafts[fb.id] ?? fb.teacherFeedback ?? '').trim()}
+                            onClick={() => handleSaveAssessmentFeedback(fb)}
+                            sx={{ mr: 1 }}
+                          >
+                            Save Feedback
+                          </Button>
                           <Button
                             variant="contained"
                             size="small"
@@ -1481,23 +1576,39 @@ const TeacherDashboard: React.FC = () => {
                 <TextField label="Login Password / Credential" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} fullWidth required />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>Assigned Class:</Typography>
-                <Select size="small" fullWidth value={newClassLevel} onChange={(e) => setNewClassLevel(Number(e.target.value))}>
-                  <MenuItem value={10}>Class 10 (Board Focus)</MenuItem>
-                  <MenuItem value={9}>Class 9</MenuItem>
-                  <MenuItem value={11}>Class 11</MenuItem>
-                  <MenuItem value={12}>Class 12</MenuItem>
-                </Select>
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="student-class-label">Class</InputLabel>
+                  <Select
+                    labelId="student-class-label"
+                    label="Class"
+                    value={newClassLevel}
+                    onChange={(e) => {
+                      const classLevel = Number(e.target.value);
+                      setNewClassLevel(classLevel);
+                      setNewSection(classLevel >= 11 ? 'PCM Stream' : 'Section A (Maths & Science)');
+                    }}
+                  >
+                    <MenuItem value={10}>Class 10 (Board Focus)</MenuItem>
+                    <MenuItem value={9}>Class 9</MenuItem>
+                    <MenuItem value={11}>Class 11</MenuItem>
+                    <MenuItem value={12}>Class 12</MenuItem>
+                  </Select>
+                </FormControl>
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>Section / Batch:</Typography>
-                <Select size="small" fullWidth value={newSection} onChange={(e) => setNewSection(e.target.value)}>
-                  <MenuItem value="Section A (Maths & Science)">Section A (Maths & Science)</MenuItem>
-                  <MenuItem value="Section B (Science Honors)">Section B (Science Honors)</MenuItem>
-                </Select>
-              </Grid>
-              <Grid size={{ xs: 12 }}>
-                <TextField label="Initial Teacher Remark" value={newRemark} onChange={(e) => setNewRemark(e.target.value)} fullWidth multiline rows={2} />
+                <FormControl size="small" fullWidth required>
+                  <InputLabel id="student-batch-label">Batch / Section</InputLabel>
+                  <Select
+                    labelId="student-batch-label"
+                    label="Batch / Section"
+                    value={newSection}
+                    onChange={(e) => setNewSection(String(e.target.value))}
+                  >
+                    {studentBatchOptions.map((batch) => (
+                      <MenuItem key={batch.value} value={batch.value}>{batch.label}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
             </Grid>
           </DialogContent>
@@ -1969,7 +2080,16 @@ const TeacherDashboard: React.FC = () => {
                   size="small"
                   fullWidth
                   value={newTestClass}
-                  onChange={(e) => setNewTestClass(Number(e.target.value))}
+                  onChange={(e) => {
+                    const classLevel = Number(e.target.value);
+                    setNewTestClass(classLevel);
+                    const classSubjects = classLevel >= 11
+                      ? ['physics', 'chemistry', 'biology', 'maths']
+                      : ['science', 'maths'];
+                    if (!classSubjects.includes(newTestSubject)) {
+                      setNewTestSubject(classLevel >= 11 ? 'physics' : 'science');
+                    }
+                  }}
                 >
                   <MenuItem value={9}>Class 9 (Foundational Curriculum)</MenuItem>
                   <MenuItem value={10}>Class 10 (Board Standard)</MenuItem>
@@ -1982,19 +2102,22 @@ const TeacherDashboard: React.FC = () => {
                 <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5, color: '#334155' }}>
                   Subject:
                 </Typography>
-                <Select
-                  size="small"
-                  fullWidth
-                  value={newTestSubject}
-                  onChange={(e) => setNewTestSubject(e.target.value)}
-                  sx={{ textTransform: 'capitalize' }}
-                >
-                  <MenuItem value="maths">Mathematics</MenuItem>
-                  <MenuItem value="science">Science</MenuItem>
-                  <MenuItem value="physics">Physics</MenuItem>
-                  <MenuItem value="chemistry">Chemistry</MenuItem>
-                  <MenuItem value="biology">Biology</MenuItem>
-                </Select>
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="publish-assessment-subject-label">Subject</InputLabel>
+                  <Select
+                    labelId="publish-assessment-subject-label"
+                    label="Subject"
+                    value={newTestSubject}
+                    onChange={(e) => setNewTestSubject(String(e.target.value))}
+                    sx={{ textTransform: 'capitalize' }}
+                  >
+                    {monthlyTestSubjects.map(subject => (
+                      <MenuItem key={subject} value={subject}>
+                        {subject === 'maths' ? 'Mathematics' : subject[0].toUpperCase() + subject.slice(1)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
 
               <Grid size={{ xs: 12, sm: 4 }}>

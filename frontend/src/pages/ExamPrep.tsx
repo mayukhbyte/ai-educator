@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Button,
@@ -30,7 +30,7 @@ import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AssignmentIcon from '@mui/icons-material/Assignment';
-import { examPrepAPI } from '../services/api';
+import { examPrepAPI, tutoringAPI } from '../services/api';
 import { TeacherVoicePlayer } from '../components/TeacherVoicePlayer';
 
 interface ExamQuestion {
@@ -65,23 +65,65 @@ interface ExamPaperData {
 }
 
 const ExamPrep: React.FC = () => {
-  const [prompt, setPrompt] = useState(
-    'Create an intensive Class 10 Board exam practice test for Electricity and Optics focusing on 3-mark circuit numericals, lens formula, and assertion-reason questions with step-by-step NCERT solutions'
-  );
+  const [prompt, setPrompt] = useState('');
   const [subject, setSubject] = useState('Physics');
   const [classLevel, setClassLevel] = useState<number>(10);
+  const [topicData, setTopicData] = useState<{
+    key: string;
+    questions: Array<{ question: string; topic?: string; subject?: string }>;
+    error?: string;
+  }>({ key: '', questions: [] });
   const [difficulty, setDifficulty] = useState('medium');
   const [numQuestions, setNumQuestions] = useState<number>(4);
   const questionType = 'all';
   const syllabus = '';
   const [loading, setLoading] = useState(false);
   const [paper, setPaper] = useState<ExamPaperData | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const key = `${classLevel}|${subject}`;
+
+    tutoringAPI.getDatabaseQuestions({ classLevel, limit: 100 })
+      .then((res) => {
+        if (!active) return;
+        const questions = Array.isArray(res?.data?.questions) ? res.data.questions : [];
+        const scienceSubjects = new Set(['science', 'physics', 'chemistry', 'biology']);
+        const normalize = (value: string) => value.toLowerCase().replace(/[^a-z]/g, '');
+        const selectedSubject = normalize(subject);
+        const matchingQuestions = questions.filter((item: { question?: string; topic?: string; subject?: string }) => {
+          if (!item.question || !item.subject) return false;
+          const storedSubject = normalize(item.subject);
+          if (selectedSubject === 'generalscience') return scienceSubjects.has(storedSubject);
+          if (storedSubject === selectedSubject) return true;
+          return classLevel <= 10 && storedSubject === 'science' &&
+            ['physics', 'chemistry', 'biology'].includes(selectedSubject);
+        });
+        setTopicData({ key, questions: matchingQuestions });
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.error('Could not load curriculum topics:', error);
+        setTopicData({
+          key,
+          questions: [],
+          error: 'Could not load topics from the curriculum database.',
+        });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [classLevel, subject]);
 
   const handleGenerateExam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!prompt.trim() && !syllabus.trim()) return;
 
     setLoading(true);
+    setPaper(null);
+    setGenerationError(null);
 
     try {
       const res = await examPrepAPI.generateExamPaper({
@@ -97,17 +139,26 @@ const ExamPrep: React.FC = () => {
 
       if (res?.data?.questions && Array.isArray(res.data.questions)) {
         setPaper(res.data);
+      } else {
+        setGenerationError('The curriculum database did not return a valid practice paper. Please try again.');
       }
-    } catch (err) {
-      console.warn('Exam generation error:', err);
+    } catch (err: any) {
+      console.error('Exam generation error:', err);
+      setGenerationError(err?.response?.data?.error || 'Exam generation failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   const handlePrint = () => {
     window.print();
   };
+  const selectedTopicData = topicData.key === `${classLevel}|${subject}` ? topicData : null;
+  const topicSuggestions = selectedTopicData?.questions
+    .filter((item, index, questions) => questions.findIndex(
+      candidate => (candidate.topic || candidate.question) === (item.topic || item.question)
+    ) === index)
+    .slice(0, 8) || [];
 
   return (
     <Box sx={{ pb: 8, maxWidth: 1100, mx: 'auto', px: { xs: 1, sm: 2 } }}>
@@ -116,13 +167,14 @@ const ExamPrep: React.FC = () => {
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1 }}>
           <PsychologyIcon color="primary" sx={{ fontSize: 36 }} />
           <Typography variant="h4" sx={{ fontWeight: 800 }}>
-            AI Exam Preparation & Prompt-Driven Generator
+            Curriculum Exam Preparation
           </Typography>
         </Stack>
         <Typography variant="body1" color="text.secondary">
-          Enter any custom exam prompt or syllabus outline. The AI pulls from 90+ NCERT curriculum blueprints to synthesize bespoke test papers, numericals, and step-by-step marking rubrics.
+          Build a practice paper from questions stored in the curriculum database. Choose a class and subject, then select an available topic or describe what you want to practise.
         </Typography>
       </Box>
+      {generationError && <Alert severity="error" sx={{ mb: 2 }}>{generationError}</Alert>}
 
       {/* Generator Control Card */}
       <Card
@@ -135,16 +187,16 @@ const ExamPrep: React.FC = () => {
       >
         <CardHeader
           avatar={<MenuBookIcon color="primary" />}
-          title={<Typography variant="h6" sx={{ fontWeight: 700 }}>Custom Examination Prompt</Typography>}
-          subheader="Provide your specific instructions, focus topics, question types, or target class"
+          title={<Typography variant="h6" sx={{ fontWeight: 700 }}>Find Curriculum Questions</Typography>}
+          subheader="Questions and answers come from stored class and subject curriculum records."
         />
         <Divider />
         <CardContent sx={{ p: 3 }}>
           <Box component="form" onSubmit={handleGenerateExam}>
             {/* Main Prompt Input Box */}
             <TextField
-              label="Describe the Exam You Want to Generate (Custom Prompt)"
-              placeholder="e.g. Generate 5 hard problems for Class 10 Quadratic Equations and Trigonometry identities with detailed proofs..."
+              label="Topic or curriculum focus"
+              placeholder={`Enter a topic for Class ${classLevel} ${subject}, or choose a stored question below`}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               fullWidth
@@ -153,6 +205,33 @@ const ExamPrep: React.FC = () => {
               required
               sx={{ mb: 3 }}
             />
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700, mb: 1 }}>
+                Available database questions for Class {classLevel} {subject}:
+              </Typography>
+              {!selectedTopicData ? (
+                <Typography variant="body2" color="text.secondary">Loading stored questions...</Typography>
+              ) : selectedTopicData.error ? (
+                <Alert severity="warning">{selectedTopicData.error}</Alert>
+              ) : selectedTopicData.questions.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No stored questions were found for this selection yet.
+                </Typography>
+              ) : (
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                  {topicSuggestions.map((item, index) => (
+                    <Chip
+                      key={`${item.topic || item.question}-${index}`}
+                      label={item.topic || item.question}
+                      clickable
+                      variant="outlined"
+                      onClick={() => setPrompt(item.question)}
+                      sx={{ maxWidth: '100%' }}
+                    />
+                  ))}
+                </Stack>
+              )}
+            </Box>
 
             {/* Parameter Selectors */}
             <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -246,7 +325,7 @@ const ExamPrep: React.FC = () => {
                   '&:hover': { bgcolor: '#1d4ed8' },
                 }}
               >
-                {loading ? 'Synthesizing Test Paper from Model...' : 'Generate Exam Paper According to Prompt'}
+                {loading ? 'Searching curriculum database...' : 'Build Practice Paper'}
               </Button>
             </Stack>
           </Box>
@@ -304,10 +383,9 @@ const ExamPrep: React.FC = () => {
               </Typography>
             </Alert>
 
-            {/* AI Teacher Voiceover Player */}
             <TeacherVoicePlayer
               textToSpeak={`Exam paper: ${paper.paperTitle}. Total marks: ${paper.totalMarks}. Duration: ${paper.durationMinutes} minutes. ${paper.blueprintSummary}. Let's begin reviewing the questions and step-by-step marking rubrics.`}
-              title="🎙️ AI Teacher Exam Paper Briefing & Voice Narration"
+              title="Teacher Exam Paper Briefing & Voice Narration"
             />
           </Paper>
 

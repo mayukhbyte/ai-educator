@@ -1,114 +1,40 @@
 const express = require('express');
 
-function examPrepRoutes(supabase, openai) {
+function examPrepRoutes(supabase) {
   const router = express.Router();
 
-  // Keyword-to-curriculum synthesis engine for dynamic offline / fallback question creation
-  function synthesizeFromPrompt({ prompt, syllabus, subject, classLevel, difficulty, numQuestions, questionType }) {
-    const combinedText = `${prompt || ''} ${syllabus || ''} ${subject || ''}`.toLowerCase();
-    const count = Math.max(2, Math.min(parseInt(numQuestions, 10) || 5, 15));
-    const cl = parseInt(classLevel, 10) || 10;
+  async function getAuthenticatedUser(req) {
+    const token = req.headers.authorization?.match(/^Bearer (.+)$/i)?.[1];
+    if (!token || !supabase) {
+      return { user: null, error: 'A signed-in account is required.', status: 401 };
+    }
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+      return { user: null, error: 'A valid signed-in account is required.', status: 401 };
+    }
+    return { user: data.user };
+  }
 
-    const detectedKeywords = [];
-    if (combinedText.includes('quadratic') || combinedText.includes('root') || combinedText.includes('discriminant')) detectedKeywords.push('Quadratic Equations');
-    if (combinedText.includes('ap') || combinedText.includes('arithmetic progression') || combinedText.includes('nth term')) detectedKeywords.push('Arithmetic Progressions');
-    if (combinedText.includes('trigonometr') || combinedText.includes('sin') || combinedText.includes('cos') || combinedText.includes('tan')) detectedKeywords.push('Trigonometry');
-    if (combinedText.includes('coordinate') || combinedText.includes('distance formula') || combinedText.includes('section formula')) detectedKeywords.push('Coordinate Geometry');
-    if (combinedText.includes('circle') || combinedText.includes('tangent') || combinedText.includes('radius')) detectedKeywords.push('Circles');
-    if (combinedText.includes('light') || combinedText.includes('mirror') || combinedText.includes('lens') || combinedText.includes('refraction') || combinedText.includes('reflection')) detectedKeywords.push('Light - Reflection & Refraction');
-    if (combinedText.includes('electric') || combinedText.includes('current') || combinedText.includes('ohm') || combinedText.includes('resistance') || combinedText.includes('joule')) detectedKeywords.push('Electricity & Circuits');
-    if (combinedText.includes('acid') || combinedText.includes('base') || combinedText.includes('ph') || combinedText.includes('salt')) detectedKeywords.push('Acids, Bases & Salts');
-    if (combinedText.includes('carbon') || combinedText.includes('alkane') || combinedText.includes('covalent') || combinedText.includes('hydrocarbon')) detectedKeywords.push('Carbon & Compounds');
-    if (combinedText.includes('life process') || combinedText.includes('nephron') || combinedText.includes('circulation') || combinedText.includes('heart') || combinedText.includes('photosynthesis')) detectedKeywords.push('Life Processes');
-    if (combinedText.includes('heredity') || combinedText.includes('mendel') || combinedText.includes('gene') || combinedText.includes('chromosome')) detectedKeywords.push('Heredity & Genetics');
-    if (combinedText.includes('sort') || combinedText.includes('tree') || combinedText.includes('graph') || combinedText.includes('complexity') || combinedText.includes('data structure')) detectedKeywords.push('Data Structures & Algorithms');
-
-    const primaryTopic = detectedKeywords[0] || (subject !== 'all' ? subject : 'Board Curriculum Core');
-
-    const generatedQuestions = [];
-
-    // Generate Question 1: Prompt-targeted MCQ
-    generatedQuestions.push({
-      id: 1,
-      section: 'Section A: Objective & Concepts (1 Mark Each)',
-      type: 'MCQ',
-      marks: 1,
-      question: `[Prompt Alignment - ${primaryTopic}] In accordance with your syllabus focus: What is the fundamental analytical principle governing ${primaryTopic}?`,
-      options: [
-        `Conservation of energy and invariant boundary conditions across ${primaryTopic}`,
-        `Direct proportionality with unconstrained quadratic growth`,
-        `Exponential decay independent of initial initial parameters`,
-        `Stochastic variation with zero correlation to curriculum rubric`
-      ],
-      correctAnswer: 0,
-      modelAnswer: `Conservation of energy and invariant boundary conditions across ${primaryTopic}`,
-      markingScheme: '1 mark for selecting the correct scientific principle.',
-      stepByStepSolution: `1. Identify the core axiom of ${primaryTopic}.\n2. Evaluate each choice against the standard NCERT/board formulation.\n3. Option 1 accurately reflects the governing physical/mathematical law.`,
-      chapterReference: `NCERT Class ${cl} ${subject} Curriculum`,
-      sourceLink: 'https://ncert.nic.in/textbook.php'
-    });
-
-    // Generate Question 2: Numerical / Applied Problem
-    generatedQuestions.push({
-      id: 2,
-      section: 'Section B: Problem Solving & Numericals (2-3 Marks)',
-      type: 'Numerical',
-      marks: 3,
-      question: `[Numerical Analysis - ${primaryTopic}] Solve the applied problem based on your prompt: Calculate the resultant value when initial parameter x = 12 is processed through the standard ${primaryTopic} transformation function with boundary coefficient k = 2.5.`,
-      options: ['30 units', '14.5 units', '4.8 units', '150 units'],
-      correctAnswer: 0,
-      modelAnswer: 'Resultant = 30 units (Derived via f(x) = k · x = 2.5 × 12 = 30)',
-      markingScheme: 'Step 1 (1 Mark): Formula definition f(x) = k · x.\nStep 2 (1 Mark): Substitution 2.5 × 12.\nStep 3 (1 Mark): Correct final calculation with units.',
-      stepByStepSolution: `Step 1: State governing transformation equation f(x) = k · x.\nStep 2: Substitute k = 2.5 and x = 12 into formula.\nStep 3: Calculate: 2.5 × 12 = 30 units. State SI units.`,
-      chapterReference: `NCERT Class ${cl} ${subject} - Quantitative Problem Solving`,
-      sourceLink: 'https://ncert.nic.in/textbook.php'
-    });
-
-    // Generate Question 3: Assertion-Reasoning
-    generatedQuestions.push({
-      id: 3,
-      section: 'Section A: Objective & Concepts (1 Mark Each)',
-      type: 'Assertion-Reason',
-      marks: 1,
-      question: `[Assertion-Reason - ${primaryTopic}]\nAssertion (A): Rigorous step-by-step adherence to ${primaryTopic} principles ensures optimal precision in board examinations.\nReason (R): NCERT marking schemes allocate discrete fractional marks for formulas, substitutions, and final units.`,
-      options: [
-        'Both (A) and (R) are true and (R) is the correct explanation of (A)',
-        'Both (A) and (R) are true but (R) is NOT the correct explanation of (A)',
-        '(A) is true but (R) is false',
-        '(A) is false but (R) is true'
-      ],
-      correctAnswer: 0,
-      modelAnswer: 'Option A: Both (A) and (R) are true and (R) is the correct explanation of (A)',
-      markingScheme: '1 mark for identifying the correct causal relationship between assertion and reason.',
-      stepByStepSolution: `1. Evaluate Assertion (A): True, step adherence directly maximizes marks under CBSE rubric.\n2. Evaluate Reason (R): True, official rubrics explicitly reward intermediate steps.\n3. Verify relationship: Reason explains why Assertion is valid.`,
-      chapterReference: `NCERT Class ${cl} ${subject} - Board Examination Guidelines`,
-      sourceLink: 'https://ncert.nic.in/textbook.php'
-    });
-
-    // Generate Question 4: Multi-Step Derivation / Analytical Proof
-    if (count >= 4) {
-      generatedQuestions.push({
-        id: 4,
-        section: 'Section C: High Order Thinking & Derivations (3-5 Marks)',
-        type: 'Derivation',
-        marks: 5,
-        question: `[Analytical Proof - ${primaryTopic}] Derive the governing relation for ${primaryTopic} under steady-state conditions and explain its significance in real-world board applications.`,
-        options: [
-          'State fundamental boundary axioms → apply differential/algebraic continuity → arrive at steady-state relation',
-          'Assume constant zero gradient across all spatial coordinates without boundary constraints',
-          'Direct empirical extrapolation without mathematical justification',
-          'Arbitrary scaling without unit balance'
-        ],
-        correctAnswer: 0,
-        modelAnswer: 'Complete 3-step proof demonstrating conservation laws and invariant limits.',
-        markingScheme: 'Step 1 (2 Marks): Axiom statement and initial boundary diagrams.\nStep 2 (2 Marks): Algebraic/algebraic reduction.\nStep 3 (1 Mark): Concluding identity with physical significance.',
-        stepByStepSolution: `1. Write initial condition and boundary assumptions.\n2. Apply continuous mathematical identities step-by-step.\n3. Arrive at standard formula and verify dimensional consistency.`,
-        chapterReference: `NCERT Class ${cl} ${subject} - Analytical Theory`,
-        sourceLink: 'https://ncert.nic.in/textbook.php'
-      });
+  async function requireTeacher(req, res, next) {
+    const authenticated = await getAuthenticatedUser(req);
+    if (!authenticated.user) {
+      return res.status(authenticated.status).json({ error: authenticated.error });
     }
 
-    return generatedQuestions.slice(0, count);
+    let role = authenticated.user.app_metadata?.role || authenticated.user.user_metadata?.role;
+    if (!role) {
+      const profile = await supabase.from('profiles')
+        .select('role')
+        .eq('id', authenticated.user.id)
+        .maybeSingle();
+      if (profile.error) return res.status(503).json({ error: 'Could not verify teacher permissions.' });
+      role = profile.data?.role;
+    }
+    if (role !== 'teacher' && role !== 'admin') {
+      return res.status(403).json({ error: 'Teacher permissions are required for this action.' });
+    }
+    req.teacher = authenticated.user;
+    return next();
   }
 
   // POST /api/exam-prep/generate
@@ -120,109 +46,110 @@ function examPrepRoutes(supabase, openai) {
       classLevel = 10,
       difficulty = 'medium',
       numQuestions = 4,
-      questionType = 'all',
       userId = 'student-guest',
     } = req.body;
 
-    const parsedClass = parseInt(classLevel, 10) || 10;
-    const requestedCount = Math.max(2, Math.min(parseInt(numQuestions, 10) || 4, 15));
+    const cleanPrompt = String(prompt || '').trim();
+    const cleanSyllabus = String(syllabus || '').trim();
+    const cleanSubject = String(subject || '').trim();
+    const parsedClass = Number.parseInt(classLevel, 10);
+    const requestedCount = Number.parseInt(numQuestions, 10);
+    if (!cleanPrompt && !cleanSyllabus) {
+      return res.status(400).json({ error: 'Enter an exam prompt or syllabus outline.' });
+    }
+    if (cleanPrompt.length > 5000 || cleanSyllabus.length > 5000) {
+      return res.status(400).json({ error: 'Exam prompt and syllabus must each be 5,000 characters or fewer.' });
+    }
+    if (!Number.isInteger(parsedClass) || parsedClass < 1 || parsedClass > 12) {
+      return res.status(400).json({ error: 'Class level must be between 1 and 12.' });
+    }
+    if (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > 15) {
+      return res.status(400).json({ error: 'Question count must be between 1 and 15.' });
+    }
+    if (!cleanSubject) {
+      return res.status(400).json({ error: 'Select a subject for the exam.' });
+    }
 
-    console.log(`[Exam Prep] Generating tailored exam for Class ${parsedClass} | Subject: ${subject} | Prompt: "${prompt}"`);
+    const cleanDifficulty = ['basic', 'medium', 'hard'].includes(String(difficulty).toLowerCase())
+      ? String(difficulty).toLowerCase()
+      : 'medium';
+    if (!supabase) {
+      return res.status(503).json({ error: 'Curriculum database is unavailable. Please try again later.' });
+    }
 
-    let finalQuestions = [];
-    let provider = 'curriculum-synthesizer';
+    let curriculumRows;
+    try {
+      const { data, error } = await supabase
+        .from('education')
+        .select('question, answer, explanation, topic, chapter_reference, subject, difficulty')
+        .eq('class_level', parsedClass)
+        .limit(500);
+      if (error) throw error;
+      curriculumRows = data || [];
+    } catch (error) {
+      console.error('[Exam Prep] Curriculum database lookup failed:', error.message);
+      return res.status(503).json({ error: 'Could not load practice questions from the curriculum database.' });
+    }
 
-    // 1. Retrieve supporting training context from Supabase 'education' table
-    let retrievedContext = '';
-    if (supabase) {
-      try {
-        const { data: trainingData } = await supabase
-          .from('education')
-          .select('question, answer, explanation, topic, chapter_reference')
-          .eq('class_level', parsedClass)
-          .limit(5);
-
-        if (trainingData && trainingData.length > 0) {
-          retrievedContext = trainingData
-            .map(t => `Topic: ${t.topic} | Q: ${t.question} | Ans: ${t.answer}`)
-            .join('\n');
-        }
-      } catch (err) {
-        console.warn('[Exam Prep] Supabase context lookup skipped:', err.message);
+    const normalize = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const normalizeSubject = value => {
+      const normalized = normalize(value).replace(/\s+/g, '');
+      return ['math', 'mathematics', 'maths'].includes(normalized) ? 'maths' : normalized;
+    };
+    const targetSubject = normalizeSubject(cleanSubject);
+    const eligibleRows = curriculumRows.filter(row => {
+      const rowSubject = normalizeSubject(row.subject);
+      if (targetSubject === 'generalscience' || targetSubject === 'science') {
+        return ['science', 'physics', 'chemistry', 'biology'].includes(rowSubject);
       }
-    }
-
-    // 2. Try OpenAI if configured
-    if (openai && prompt && prompt.trim().length > 5) {
-      try {
-        const systemPrompt = `You are an elite academic examination designer and Arihant & NCERT board paper creator for Class ${parsedClass} ${subject}.
-Generate an exam paper containing exactly ${requestedCount} questions tailored precisely to this user prompt/syllabus following Arihant conceptual patterns.
-User Prompt: "${prompt}"
-Syllabus / Outline: "${syllabus}"
-Difficulty: ${difficulty}
-
-Reference NCERT Knowledge Base:
-${retrievedContext}
-
-Return a valid JSON object ONLY with the following exact structure (no extra text):
-{
-  "paperTitle": "Class ${parsedClass} ${subject} Custom Assessment",
-  "blueprintSummary": "Summary of topic weightages and cognitive levels",
-  "questions": [
-    {
-      "id": 1,
-      "section": "Section A (1 Mark)",
-      "type": "MCQ",
-      "marks": 1,
-      "question": "Question text here?",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correctAnswer": 0,
-      "hint": "Pedagogical hint for hard questions",
-      "modelAnswer": "Brief model answer",
-      "markingScheme": "Step marking criteria",
-      "stepByStepSolution": "1. Step one\n2. Step two",
-      "chapterReference": "Arihant / NCERT chapter name",
-      "sourceLink": "https://ncert.nic.in/textbook.php"
-    }
-  ]
-}`;
-
-        const response = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Generate Class ${parsedClass} ${subject} examination paper on "${prompt}". Syllabus: "${syllabus}". Difficulty: ${difficulty}.` }
-          ],
-          temperature: 0.3,
-          response_format: { type: 'json_object' }
-        });
-
-        const parsed = JSON.parse(response.choices[0].message.content);
-        if (parsed.questions && Array.isArray(parsed.questions) && parsed.questions.length > 0) {
-          finalQuestions = parsed.questions;
-          provider = 'openai-gpt-4o-mini';
-        }
-      } catch (err) {
-        console.warn('[Exam Prep] OpenAI generation fallback to synthesizer:', err.message);
-      }
-    }
-
-    // Fallback: Local Curriculum Synthesis Engine
-    if (!finalQuestions || finalQuestions.length === 0) {
-      finalQuestions = synthesizeFromPrompt({
-        prompt,
-        syllabus,
-        subject,
-        classLevel: parsedClass,
-        difficulty,
-        numQuestions: requestedCount,
-        questionType,
+      return rowSubject === targetSubject || (
+        parsedClass <= 10 && rowSubject === 'science' &&
+        ['physics', 'chemistry', 'biology'].includes(targetSubject)
+      );
+    });
+    const ignoredTerms = new Set([
+      'a', 'an', 'and', 'according', 'based', 'board', 'class', 'create', 'exam', 'examination',
+      'focus', 'focusing', 'for', 'from', 'generate', 'include', 'including', 'level', 'make',
+      'paper', 'practice', 'question', 'questions', 'step', 'steps', 'test', 'the', 'this',
+      'with', 'solution', 'solutions', 'basic', 'medium', 'hard', 'easy', 'standard', 'ncert',
+      'physics', 'chemistry', 'biology', 'science', 'math', 'maths', 'mathematics',
+    ]);
+    const requestedTerms = [...new Set((cleanPrompt + ' ' + cleanSyllabus).toLowerCase().match(/[a-z0-9]{3,}/g) || [])]
+      .filter(term => !ignoredTerms.has(term) && !/^\d+$/.test(term));
+    const rankedRows = eligibleRows.map(row => {
+      const corpus = normalize([row.topic || '', row.question || '', row.chapter_reference || ''].join(' '));
+      const score = requestedTerms.reduce((total, term) => total + (corpus.includes(term) ? 1 : 0), 0);
+      return { row, score, difficultyMatch: String(row.difficulty || '').toLowerCase() === cleanDifficulty };
+    }).filter(match => requestedTerms.length === 0 || match.score > 0)
+      .sort((a, b) => b.score - a.score || Number(b.difficultyMatch) - Number(a.difficultyMatch));
+    const selectedRows = rankedRows.slice(0, requestedCount);
+    if (selectedRows.length === 0) {
+      return res.status(404).json({
+        error: 'No stored ' + cleanSubject + ' questions match this Class ' + parsedClass + ' topic. Try another topic or add matching curriculum records.',
       });
-      provider = 'curriculum-engine';
     }
 
+    const finalQuestions = selectedRows.map(({ row }, index) => {
+      const answer = String(row.answer || '').trim();
+      const explanation = String(row.explanation || '').trim();
+      return {
+        id: index + 1,
+        section: row.topic || row.chapter_reference || 'Curriculum practice',
+        type: 'Written response',
+        marks: cleanDifficulty === 'hard' ? 3 : cleanDifficulty === 'medium' ? 2 : 1,
+        question: row.question,
+        modelAnswer: answer || explanation,
+        markingScheme: explanation || 'Use the stored curriculum answer as the reference for checking this response.',
+        stepByStepSolution: explanation || answer,
+        chapterReference: row.chapter_reference || row.topic || '',
+        sourceLink: 'https://ncert.nic.in/textbook.php',
+      };
+    });
+    const paperTitle = 'Class ' + parsedClass + ' ' + cleanSubject + ' Curriculum Practice';
+    const blueprintSummary = 'Selected ' + finalQuestions.length + ' matching item(s) from stored class and subject curriculum records. No AI generation was used.';
+    const provider = 'curriculum-database';
     const totalMarks = finalQuestions.reduce((sum, q) => sum + (q.marks || 1), 0);
-    const paperId = `EXAM-CL${parsedClass}-${Date.now().toString().slice(-6)}`;
+    const paperId = `EXAM-CL${parsedClass}-${Date.now()}`;
 
     // Log paper generation to Supabase 'train' table
     if (supabase) {
@@ -230,13 +157,13 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
         await supabase.from('train').insert([
           {
             title: `Custom Exam Paper: ${paperId}`,
-            content: `Class: ${parsedClass} | Subject: ${subject} | Prompt: "${prompt.slice(0, 100)}" | Questions: ${finalQuestions.length} | Marks: ${totalMarks}`,
-            subject: subject,
+            content: `Class: ${parsedClass} | Subject: ${cleanSubject} | Prompt: "${cleanPrompt.slice(0, 100)}" | Questions: ${finalQuestions.length} | Marks: ${totalMarks}`,
+            subject: cleanSubject,
             topic: 'Exam Prep Generation',
             class_level: parsedClass,
             chapter_reference: `Class ${parsedClass} Custom Exam`,
             content_type: 'exam_paper',
-            difficulty: difficulty,
+            difficulty: cleanDifficulty,
             quality_score: 0.95,
             source: `exam-gen-${userId}`,
           },
@@ -248,17 +175,17 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
 
     return res.json({
       paperId,
-      paperTitle: `Class ${parsedClass} ${subject} Tailored Examination (Arihant & NCERT Guidelines)`,
+      paperTitle,
       classLevel: parsedClass,
-      subject,
-      difficulty,
-      promptUsed: prompt || syllabus,
+      subject: cleanSubject,
+      difficulty: cleanDifficulty,
+      promptUsed: cleanPrompt || cleanSyllabus,
       totalQuestions: finalQuestions.length,
       totalMarks,
       durationMinutes: Math.max(15, finalQuestions.length * 5),
       provider,
-      curriculum: 'Arihant & NCERT / CBSE Board Aligned',
-      blueprintSummary: `Synthesized with ${finalQuestions.length} high-yield questions covering foundational concepts, numerical transformations, and assertion-reason proofs.`,
+      curriculum: 'Selected from stored curriculum database records',
+      blueprintSummary,
       questions: finalQuestions,
       officialEbookLinks: {
         arihant: 'https://www.arihantbooks.com',
@@ -1851,25 +1778,17 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
     },
   };
 
-  // In-memory published tests store
-  const publishedCustomTests = [];
-
-  // In-memory Teacher Feedback Store
-  const teacherFeedbackStore = [];
-
   // Helper to build a test object from the question bank
   function buildTest(classLevel, subject, organizer = 'AI Curriculum Engine & Faculty', options = {}) {
     const cl = parseInt(classLevel, 10) || 10;
-    const subKey = (subject || '').toLowerCase().replace(/[^a-z]/g, '');
+    let subKey = (subject || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (subKey === 'math' || subKey === 'mathematics') subKey = 'maths';
     const bank = QUESTION_BANK[cl];
     if (!bank) return null;
 
     // Match subject flexibly
     let match = Object.keys(bank).find(k => subKey.includes(k) || k.includes(subKey));
-    if (!match) {
-      // Default to first available subject in class
-      match = Object.keys(bank)[0];
-    }
+    if (!match) return null;
 
     const data = bank[match];
     const difficultyFilter = (options.difficulty || 'all').toLowerCase();
@@ -1951,95 +1870,93 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
     };
   }
 
-  // Per-class active monthly test store (Classes 9, 10, 11, 12)
-  const activeTestsByClass = {
-    9: buildTest(9, 'science'),
-    10: buildTest(10, 'science'),
-    11: buildTest(11, 'physics'),
-    12: buildTest(12, 'physics'),
-  };
+  function getDatabaseErrorMessage(error) {
+    if (error?.code === 'PGRST205' || error?.code === '42P01') {
+      return 'Supabase is connected, but assessment tables are missing. Apply backend/migrations/20261006_assessment_workflow.sql to the configured Supabase project.';
+    }
+    return 'Could not access assessment storage.';
+  }
 
-  // Track which classes have had a teacher-published test override
-  const teacherPublishedClasses = new Set();
+  function studentSafeTest(test) {
+    if (!test) return test;
+    return {
+      ...test,
+      sections: (test.sections || []).map(section => ({
+        ...section,
+        questions: (section.questions || []).map(question => {
+          const {
+            correctAnswer,
+            markingSteps,
+            explanation,
+            stepByStepSolution,
+            modelAnswer,
+            ...studentQuestion
+          } = question;
+          return studentQuestion;
+        }),
+      })),
+    };
+  }
 
-  // Global fallback active test (Class 10 Science)
-  let activeMonthlyTest = activeTestsByClass[10];
+  async function getActivePublishedTest(classLevel, subject) {
+    if (!supabase) return { error: { code: 'SUPABASE_NOT_CONFIGURED' } };
+    return supabase
+      .from('published_assessments')
+      .select('test_data')
+      .eq('class_level', classLevel)
+      .ilike('subject', subject)
+      .eq('status', 'active')
+      .order('published_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+  }
 
   // ── GET /api/exam-prep/monthly-test/catalog
   // Returns available class+subject combinations for Class 9, 10, 11, 12
-  router.get('/monthly-test/catalog', (req, res) => {
-    const catalog = [];
-    Object.keys(QUESTION_BANK).forEach(cl => {
-      Object.keys(QUESTION_BANK[cl]).forEach(subj => {
-        const data = QUESTION_BANK[cl][subj];
-        catalog.push({
-          classLevel: parseInt(cl, 10),
-          subject: subj,
-          subjectLabel: subj.charAt(0).toUpperCase() + subj.slice(1),
-          title: data.title,
-          durationMinutes: data.durationMinutes,
-          totalMarks: data.totalMarks,
-          arihantLink: refLink(subj, cl),
-        });
-      });
-    });
+  router.get('/monthly-test/catalog', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Supabase is not configured for assessment storage.' });
+    const { data, error } = await supabase
+      .from('published_assessments')
+      .select('class_level, subject, test_data')
+      .eq('status', 'active')
+      .order('published_at', { ascending: false });
+    if (error) return res.status(503).json({ error: getDatabaseErrorMessage(error) });
+    const catalog = (data || []).map(row => ({
+      classLevel: row.class_level,
+      subject: row.subject,
+      subjectLabel: row.test_data?.subject || row.subject,
+      title: row.test_data?.title,
+      durationMinutes: row.test_data?.durationMinutes,
+      totalMarks: row.test_data?.totalMarks,
+      arihantLink: row.test_data?.arihantReference,
+    }));
     return res.json({ success: true, catalog });
   });
 
   // ── GET /api/exam-prep/monthly-test?class=12&subject=physics&difficulty=all&numQuestions=4
   // Returns the teacher-published test for a specific class (or the auto-built test if none published)
-  router.get('/monthly-test', (req, res) => {
-    const { class: clQuery, subject, difficulty, numQuestions } = req.query;
-    const cl = parseInt(clQuery, 10);
-
-    let test = null;
-
-    if (cl && [9, 10, 11, 12].includes(cl)) {
-      // PRIORITY 1: Always return teacher-published test for this class if it exists
-      if (teacherPublishedClasses.has(cl)) {
-        test = activeTestsByClass[cl];
-      }
-
-      // PRIORITY 2: If custom difficulty/numQuestions filters requested AND no published test, build fresh
-      if (!test && (difficulty && difficulty !== 'all') || numQuestions) {
-        let targetSubj = (subject || '').toLowerCase().trim();
-        if (!targetSubj || (cl >= 11 && targetSubj === 'science')) {
-          targetSubj = 'physics';
-        }
-        test = buildTest(cl, targetSubj, 'Faculty Examination Board', { difficulty, numQuestions });
-      }
-
-      // PRIORITY 3: Return pre-built test for this class (correct class-specific questions)
-      if (!test) {
-        let targetSubj = (subject || '').toLowerCase().trim();
-        if (!targetSubj || (cl >= 11 && targetSubj === 'science')) {
-          targetSubj = 'physics';
-        }
-        if (cl <= 10 && (!targetSubj || targetSubj === 'physics')) {
-          targetSubj = 'science';
-        }
-        test = activeTestsByClass[cl] || buildTest(cl, targetSubj);
-      }
-    } else if (subject) {
-      const fallbackCl = cl || 10;
-      test = activeTestsByClass[fallbackCl] || buildTest(fallbackCl, subject, 'Faculty Examination Board', { difficulty, numQuestions });
+  router.get('/monthly-test', async (req, res) => {
+    const { class: clQuery, classLevel: clLevelQuery, subject, difficulty, numQuestions } = req.query;
+    const cl = parseInt(clQuery || clLevelQuery, 10);
+    if (!Number.isInteger(cl) || cl < 1 || cl > 12 || !subject) {
+      return res.status(400).json({ error: 'A valid class and subject are required.' });
     }
 
-    if (!test) {
-      test = activeMonthlyTest || buildTest(10, 'science');
+    const result = await getActivePublishedTest(cl, String(subject).toLowerCase().trim());
+    if (result.error) {
+      return res.status(503).json({ error: getDatabaseErrorMessage(result.error) });
+    }
+    if (!result.data?.test_data) {
+      return res.status(404).json({ error: 'No assessment has been published for this class and subject yet.' });
     }
 
-    return res.json({
-      success: true,
-      test,
-      ...test,
-      lastUpdated: new Date().toISOString(),
-    });
+    const test = studentSafeTest(result.data.test_data);
+    return res.json({ success: true, test, ...test, lastUpdated: new Date().toISOString() });
   });
 
   // ── POST /api/exam-prep/monthly-test/publish
   // Allows teachers to publish customized tests per Arihant & NCERT guidelines
-  router.post('/monthly-test/publish', (req, res) => {
+  router.post('/monthly-test/publish', requireTeacher, async (req, res) => {
     const {
       title,
       classLevel = 10,
@@ -2054,6 +1971,9 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
     } = req.body;
 
     const parsedClass = parseInt(classLevel, 10) || 10;
+    if (![9, 10, 11, 12].includes(parsedClass)) {
+      return res.status(400).json({ error: 'Monthly assessments are available for Classes 9–12.' });
+    }
     let targetSubj = (subject || '').toLowerCase().trim();
     if (parsedClass >= 11 && targetSubj === 'science') {
       targetSubj = 'physics';
@@ -2067,46 +1987,46 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
       hintsEnabled,
     });
 
-    let publishedTest = null;
-    if (built) {
-      publishedTest = built;
-      if (sections && Array.isArray(sections) && sections.length > 0) {
-        publishedTest.sections = sections;
-      }
-      if (syllabus) {
-        publishedTest.syllabus = syllabus;
-      }
-    } else {
-      publishedTest = {
-        testId: `CUSTOM-CL${parsedClass}-${Date.now().toString().slice(-6)}`,
-        title: title || `Class ${parsedClass} ${targetSubj} Monthly Assessment`,
-        classLevel: parsedClass,
-        subject: targetSubj.charAt(0).toUpperCase() + targetSubj.slice(1),
-        organizer,
-        difficulty,
-        hintsEnabled,
-        durationMinutes: parseInt(durationMinutes, 10) || 45,
-        totalMarks: 10,
-        passingMarks: 4,
-        organizedDate: new Date().toISOString().split('T')[0],
-        status: 'active',
-        arihantReference: refLink(targetSubj, parsedClass),
-        ncertReference: ARIHANT_LINKS.ncert,
-        syllabus: syllabus || 'Comprehensive NCERT / Arihant Curriculum',
-        sections: sections || [],
-      };
+    if (!built) {
+      return res.status(400).json({
+        error: `No monthly assessment question bank is available for Class ${parsedClass} ${targetSubj}.`,
+      });
+    }
+    const publishedTest = built;
+    if (sections && Array.isArray(sections) && sections.length > 0) {
+      publishedTest.sections = sections;
+    }
+    if (syllabus) {
+      publishedTest.syllabus = syllabus;
     }
 
-    // Save to active tests dictionary and mark this class as teacher-published
-    activeTestsByClass[parsedClass] = publishedTest;
-    teacherPublishedClasses.add(parsedClass);
-    activeMonthlyTest = publishedTest;
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase is not configured for assessment storage.' });
+    }
 
-    // Save to published history
-    publishedCustomTests.unshift({
-      ...publishedTest,
-      publishedAt: new Date().toISOString(),
+    publishedTest.testId = `ASSESSMENT-CL${parsedClass}-${targetSubj.toUpperCase()}-${Date.now()}`;
+    const saved = await supabase.from('published_assessments').insert({
+      test_id: publishedTest.testId,
+      class_level: parsedClass,
+      subject: targetSubj,
+      status: 'active',
+      test_data: publishedTest,
     });
+    if (saved.error) {
+      return res.status(503).json({ error: getDatabaseErrorMessage(saved.error) });
+    }
+
+    const archived = await supabase
+      .from('published_assessments')
+      .update({ status: 'archived' })
+      .eq('class_level', parsedClass)
+      .ilike('subject', targetSubj)
+      .eq('status', 'active')
+      .neq('test_id', publishedTest.testId);
+    if (archived.error) {
+      console.error('Could not archive previous assessment version:', archived.error.message);
+      return res.status(503).json({ error: getDatabaseErrorMessage(archived.error) });
+    }
 
     return res.json({
       success: true,
@@ -2118,23 +2038,75 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
 
   // ── POST /api/exam-prep/monthly-test/submit
   // Evaluates answers with strict NCERT step-marking, generates points for improvement, updates live rank, and notifies Teacher Dashboard
-  router.post('/monthly-test/submit', (req, res) => {
+  router.post('/monthly-test/submit', async (req, res) => {
     const {
       testId,
       answers = {},
-      userId = 'student@example.com',
-      studentName = 'Active Student',
-      classLevel,
-      subject,
+      userId,
+      timeTakenSeconds,
     } = req.body;
 
-    const rankManager = require('../services/rankManager');
+    if (!testId) {
+      return res.status(400).json({ error: 'A test ID is required.' });
+    }
+    if (!Number.isInteger(Number(timeTakenSeconds)) || Number(timeTakenSeconds) < 0) {
+      return res.status(400).json({ error: 'A valid time taken in seconds is required.' });
+    }
+    if (!supabase) {
+      return res.status(503).json({ error: 'Assessment storage is not configured.' });
+    }
 
-    // Resolve which test to evaluate against
-    let testToEval = activeMonthlyTest;
-    if (classLevel && subject) {
-      const built = buildTest(classLevel, subject);
-      if (built) testToEval = built;
+    const authenticated = await getAuthenticatedUser(req);
+    if (!authenticated.user) {
+      return res.status(authenticated.status).json({ error: authenticated.error });
+    }
+    const studentEmail = String(authenticated.user.email || '').trim().toLowerCase();
+    if (!studentEmail || (userId && String(userId).trim().toLowerCase() !== studentEmail)) {
+      return res.status(403).json({ error: 'The submitted student identity does not match the signed-in account.' });
+    }
+
+    const rosterStudent = await supabase
+      .from('student_roster')
+      .select('full_name, class_level, status')
+      .eq('auth_user_id', authenticated.user.id)
+      .maybeSingle();
+    if (rosterStudent.error) {
+      return res.status(503).json({
+        error: rosterStudent.error.code === 'PGRST205' || rosterStudent.error.code === '42P01'
+          ? 'Student roster storage is missing. Apply backend/migrations/20261007_student_roster.sql to Supabase.'
+          : 'Could not verify the student roster record.',
+      });
+    }
+    if (!rosterStudent.data || rosterStudent.data.status !== 'active') {
+      return res.status(403).json({ error: 'An active student roster account is required to submit assessments.' });
+    }
+
+    const storedTest = await supabase
+      .from('published_assessments')
+      .select('test_data')
+      .eq('test_id', testId)
+      .maybeSingle();
+    if (storedTest.error) {
+      return res.status(503).json({ error: getDatabaseErrorMessage(storedTest.error) });
+    }
+    if (!storedTest.data?.test_data) {
+      return res.status(404).json({ error: 'The assessment no longer exists.' });
+    }
+    const testToEval = storedTest.data.test_data;
+    if (Number(testToEval.classLevel) !== rosterStudent.data.class_level) {
+      return res.status(403).json({ error: 'This assessment is not assigned to your class.' });
+    }
+    const priorSubmission = await supabase
+      .from('assessment_submissions')
+      .select('id')
+      .eq('test_id', testId)
+      .eq('student_email', studentEmail)
+      .maybeSingle();
+    if (priorSubmission.error) {
+      return res.status(503).json({ error: getDatabaseErrorMessage(priorSubmission.error) });
+    }
+    if (priorSubmission.data) {
+      return res.status(409).json({ error: 'You have already submitted this assessment.' });
     }
 
     let totalMarksEarned = 0;
@@ -2219,61 +2191,82 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
     else if (percentage >= 41) grade = 'C2';
     else if (percentage >= 33) grade = 'D (Marginal Pass)';
 
-    // Update real-time rank via rankManager
-    const rankResult = rankManager.recordStudentSubmission({
-      userId,
-      studentName,
-      subject: testToEval.subject,
-      topic: `${testToEval.title} (Strict NCERT Marking)`,
-      score: Math.round(totalMarksEarned),
-      totalQuestions: maxMarks,
-      percentage,
-      classLevel: testToEval.classLevel,
-      weakTopics: weakPoints,
-      strongTopics: stepAudit.filter(s => s.isCorrect).map(s => s.chapterReference || 'NCERT Core'),
+    const { data: classRows, error: classRowsError } = await supabase
+      .from('assessment_submissions')
+      .select('student_email, student_name, score, max_marks, time_taken_seconds')
+      .eq('class_level', testToEval.classLevel);
+    if (classRowsError) {
+      return res.status(503).json({ error: getDatabaseErrorMessage(classRowsError) });
+    }
+    const classScores = new Map();
+    for (const row of classRows || []) {
+      const current = classScores.get(row.student_email) || {
+        name: row.student_name,
+        score: 0,
+        maxMarks: 0,
+        totalSeconds: 0,
+        attempts: 0,
+      };
+      current.score += Number(row.score) || 0;
+      current.maxMarks += Number(row.max_marks) || 0;
+      current.totalSeconds += Number(row.time_taken_seconds) || 0;
+      current.attempts += 1;
+      classScores.set(row.student_email, current);
+    }
+    const rankStudents = [...classScores.entries()].map(([email, student]) => ({
+      email,
+      name: student.name,
+      percentage: student.maxMarks ? (student.score / student.maxMarks) * 100 : 0,
+      averageTimeSeconds: student.attempts ? student.totalSeconds / student.attempts : Number.POSITIVE_INFINITY,
+    }));
+    rankStudents.sort((a, b) =>
+      b.percentage - a.percentage ||
+      a.averageTimeSeconds - b.averageTimeSeconds ||
+      a.name.localeCompare(b.name)
+    );
+    const previousRankIndex = rankStudents.findIndex(student => student.email === studentEmail);
+    const previousRank = previousRankIndex < 0 ? 0 : previousRankIndex + 1;
+    const existingStudentStats = classScores.get(studentEmail);
+    rankStudents.push({
+      email: studentEmail,
+      name: rosterStudent.data.full_name,
+      percentage: existingStudentStats
+        ? ((existingStudentStats.score + totalMarksEarned) / (existingStudentStats.maxMarks + maxMarks)) * 100
+        : percentage,
+      averageTimeSeconds: existingStudentStats
+        ? (existingStudentStats.totalSeconds + Number(timeTakenSeconds)) / (existingStudentStats.attempts + 1)
+        : Number(timeTakenSeconds),
     });
+    if (existingStudentStats) {
+      rankStudents.splice(rankStudents.findIndex(student => student.email === studentEmail), 1);
+    }
+    rankStudents.sort((a, b) =>
+      b.percentage - a.percentage ||
+      a.averageTimeSeconds - b.averageTimeSeconds ||
+      a.name.localeCompare(b.name)
+    );
+    const rank = rankStudents.findIndex(student => student.email === studentEmail) + 1;
+    const rankChange = previousRank ? previousRank - rank : 0;
 
-    // Store feedback in Teacher Feedback Store so teacher can review and organize future tests
-    const studentFeedbackReport = {
-      id: `FEEDBACK-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    const submittedAt = new Date().toISOString();
+    const result = {
       testId: testToEval.testId,
       testTitle: testToEval.title,
       classLevel: testToEval.classLevel,
       subject: testToEval.subject,
-      userId,
-      studentName,
+      studentName: rosterStudent.data.full_name,
+      userId: studentEmail,
       totalMarksEarned: Math.round(totalMarksEarned * 10) / 10,
       maxMarks,
       percentage,
       grade,
-      rank: rankResult.rank,
-      weakPoints,
-      improvementRecommendations,
-      stepAuditSummary: `${stepAudit.filter(s => s.isCorrect).length}/${stepAudit.length} Questions Solved Correctly`,
-      timestamp: new Date().toISOString(),
-    };
-
-    teacherFeedbackStore.unshift(studentFeedbackReport);
-    if (teacherFeedbackStore.length > 50) teacherFeedbackStore.pop(); // limit size
-
-    return res.json({
-      testId: testToEval.testId,
-      testTitle: testToEval.title,
-      classLevel: testToEval.classLevel,
-      subject: testToEval.subject,
-      studentName,
-      totalMarksEarned: Math.round(totalMarksEarned * 10) / 10,
-      maxMarks,
-      percentage,
-      grade,
-      rank: rankResult.rank,
-      previousRank: rankResult.previousRank,
-      rankChange: rankResult.rankChange,
-      rankStatusText: rankResult.rankChange > 0
-        ? `🚀 Promoted by +${rankResult.rankChange} Ranks (Now Rank #${rankResult.rank})!`
-        : rankResult.rankChange < 0
-        ? `⚠️ Rank adjusted to #${rankResult.rank}. Review step-marking deductions!`
-        : `Rank #${rankResult.rank} Maintained (Strong Board Standing)`,
+      timeTakenSeconds: Number(timeTakenSeconds),
+      rank,
+      previousRank: previousRank || rank,
+      rankChange,
+      rankStatusText: rankChange > 0
+        ? `Promoted by ${rankChange} position(s); current rank #${rank}.`
+        : `Current class rank: #${rank}.`,
       arihantReference: testToEval.arihantReference,
       ncertReference: testToEval.ncertReference,
       stepAudit,
@@ -2281,27 +2274,126 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
       improvementRecommendations,
       markingSchemeRule: testToEval.markingSchemeRule,
       teacherFeedbackSent: true,
-      timestamp: new Date().toISOString(),
-    });
+      teacherFeedback: '',
+      timestamp: submittedAt,
+    };
+
+    const savedSubmission = await supabase
+      .from('assessment_submissions')
+      .insert({
+        test_id: testToEval.testId,
+        student_email: studentEmail,
+        student_name: result.studentName,
+        class_level: testToEval.classLevel,
+        subject: testToEval.subject,
+        score: result.totalMarksEarned,
+        max_marks: maxMarks,
+        percentage,
+        time_taken_seconds: Number(timeTakenSeconds),
+        answers,
+        result_data: result,
+        submitted_at: submittedAt,
+      })
+      .select('id')
+      .single();
+    if (savedSubmission.error) {
+      if (savedSubmission.error.code === '23505') {
+        return res.status(409).json({ error: 'You have already submitted this assessment.' });
+      }
+      return res.status(503).json({ error: getDatabaseErrorMessage(savedSubmission.error) });
+    }
+
+    return res.json({ ...result, submissionId: savedSubmission.data.id });
   });
 
   // ── GET /api/exam-prep/teacher-feedback
   // Returns student test feedback reports for the Teacher Dashboard
-  router.get('/teacher-feedback', (req, res) => {
+  router.get('/teacher-feedback', requireTeacher, async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Assessment storage is not configured.' });
+    const { data, error } = await supabase
+      .from('assessment_submissions')
+      .select('id, test_id, student_email, student_name, class_level, subject, score, max_marks, percentage, time_taken_seconds, teacher_feedback, submitted_at, feedback_at, result_data')
+      .order('submitted_at', { ascending: false });
+    if (error) return res.status(503).json({ error: getDatabaseErrorMessage(error) });
+
+    const feedbacks = (data || []).map(row => ({
+      ...row.result_data,
+      id: row.id,
+      testId: row.test_id,
+      userId: row.student_email,
+      studentName: row.student_name,
+      classLevel: row.class_level,
+      subject: row.subject,
+      totalMarksEarned: Number(row.score),
+      maxMarks: Number(row.max_marks),
+      percentage: Number(row.percentage),
+      timeTakenSeconds: row.time_taken_seconds,
+      teacherFeedback: row.teacher_feedback,
+      timestamp: row.submitted_at,
+      feedbackAt: row.feedback_at,
+    }));
+    return res.json({ success: true, feedbacks, totalSubmissions: feedbacks.length });
+  });
+
+  router.get('/monthly-test/submissions', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Assessment storage is not configured.' });
+    const authenticated = await getAuthenticatedUser(req);
+    if (!authenticated.user) {
+      return res.status(authenticated.status).json({ error: authenticated.error });
+    }
+    const studentEmail = String(authenticated.user.email || '').trim().toLowerCase();
+    const requestedEmail = String(req.query.userId || '').trim().toLowerCase();
+    if (!studentEmail || (requestedEmail && requestedEmail !== studentEmail)) {
+      return res.status(403).json({ error: 'You can only view your own assessment submissions.' });
+    }
+    const { data, error } = await supabase
+      .from('assessment_submissions')
+      .select('id, test_id, student_email, student_name, class_level, subject, score, max_marks, percentage, time_taken_seconds, teacher_feedback, submitted_at, feedback_at, result_data')
+      .eq('student_email', studentEmail)
+      .order('submitted_at', { ascending: false });
+    if (error) return res.status(503).json({ error: getDatabaseErrorMessage(error) });
     return res.json({
       success: true,
-      feedbacks: teacherFeedbackStore,
-      totalSubmissions: teacherFeedbackStore.length,
+      submissions: (data || []).map(row => ({
+        ...row.result_data,
+        id: row.id,
+        testId: row.test_id,
+        studentEmail: row.student_email,
+        studentName: row.student_name,
+        classLevel: row.class_level,
+        subject: row.subject,
+        totalMarksEarned: Number(row.score),
+        maxMarks: Number(row.max_marks),
+        percentage: Number(row.percentage),
+        timeTakenSeconds: row.time_taken_seconds,
+        teacherFeedback: row.teacher_feedback,
+        timestamp: row.submitted_at,
+        feedbackAt: row.feedback_at,
+      })),
     });
+  });
+
+  router.patch('/teacher-feedback/:submissionId', requireTeacher, async (req, res) => {
+    const feedback = String(req.body.feedback || '').trim();
+    if (!feedback) return res.status(400).json({ error: 'Feedback cannot be empty.' });
+    if (!supabase) return res.status(503).json({ error: 'Assessment storage is not configured.' });
+    const { data, error } = await supabase
+      .from('assessment_submissions')
+      .update({ teacher_feedback: feedback, feedback_at: new Date().toISOString() })
+      .eq('id', req.params.submissionId)
+      .select('id, teacher_feedback, feedback_at')
+      .single();
+    if (error) return res.status(503).json({ error: getDatabaseErrorMessage(error) });
+    return res.json({ success: true, feedback: data.teacher_feedback, feedbackAt: data.feedback_at });
   });
 
   // ── POST /api/exam-prep/organize-targeted-test
   // Teacher can organize a targeted test for student's future development based on weak areas
-  router.post('/organize-targeted-test', (req, res) => {
+  router.post('/organize-targeted-test', requireTeacher, async (req, res) => {
     const {
       classLevel = 10,
       subject = 'science',
-      studentName = 'All Students',
+      studentName,
       targetTopics = [],
       difficulty = 'medium',
       numQuestions = 4,
@@ -2313,6 +2405,8 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
       targetSubj = 'physics';
     }
 
+    if (!studentName) return res.status(400).json({ error: 'A student name is required.' });
+    if (!supabase) return res.status(503).json({ error: 'Assessment storage is not configured.' });
     const topicStr = Array.isArray(targetTopics) ? targetTopics.join(', ') : (targetTopics || 'Remedial Focus Topics');
     const title = `Targeted Remedial Assessment for ${studentName} — Class ${parsedClass} ${targetSubj} (${topicStr})`;
 
@@ -2324,18 +2418,30 @@ Return a valid JSON object ONLY with the following exact structure (no extra tex
     });
 
     if (customTest) {
-      activeTestsByClass[parsedClass] = customTest;
-      activeMonthlyTest = customTest;
-      publishedCustomTests.unshift({
-        ...customTest,
-        publishedAt: new Date().toISOString(),
+      customTest.testId = `ASSESSMENT-REMEDIAL-CL${parsedClass}-${Date.now()}`;
+      const saved = await supabase.from('published_assessments').insert({
+        test_id: customTest.testId,
+        class_level: parsedClass,
+        subject: targetSubj,
+        status: 'active',
+        test_data: customTest,
       });
+      if (saved.error) return res.status(503).json({ error: getDatabaseErrorMessage(saved.error) });
+      const archived = await supabase
+        .from('published_assessments')
+        .update({ status: 'archived' })
+        .eq('class_level', parsedClass)
+        .ilike('subject', targetSubj)
+        .eq('status', 'active')
+        .neq('test_id', customTest.testId);
+      if (archived.error) return res.status(503).json({ error: getDatabaseErrorMessage(archived.error) });
     }
 
+    if (!customTest) return res.status(400).json({ error: 'Could not create the remedial assessment.' });
     return res.json({
       success: true,
       message: `Targeted developmental test organized for ${studentName}! Published live to Student Dashboard.`,
-      test: customTest || activeMonthlyTest,
+      test: customTest,
     });
   });
 

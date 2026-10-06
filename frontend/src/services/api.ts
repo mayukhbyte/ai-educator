@@ -2,14 +2,14 @@ import axios, { type InternalAxiosRequestConfig } from 'axios';
 
 // Create axios instance with base URL
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
 });
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = localStorage.getItem('token');
-    if (token && config.headers) {
+    if (token && config.headers && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -30,6 +30,7 @@ export const authAPI = {
     role?: string;
     classLevel?: number;
     section?: string;
+    facultyCode?: string;
   }) => api.post('/auth/signup', data),
   me: () => api.get('/auth/me'),
 };
@@ -158,9 +159,12 @@ export const examPrepAPI = {
     answers: Record<string, number>;
     userId?: string;
     studentName?: string;
-    classLevel?: number | string;
-    subject?: string;
+    timeTakenSeconds: number;
   }) => api.post('/exam-prep/monthly-test/submit', data),
+  getStudentTestSubmissions: (userId: string) =>
+    api.get('/exam-prep/monthly-test/submissions', { params: { userId } }),
+  saveTeacherFeedback: (submissionId: string, feedback: string) =>
+    api.patch(`/exam-prep/teacher-feedback/${encodeURIComponent(submissionId)}`, { feedback }),
   getTeacherFeedback: () => api.get('/exam-prep/teacher-feedback'),
   organizeTargetedTest: (data: {
     classLevel: number | string;

@@ -493,21 +493,398 @@ const ncertQuestions = [
     quality_score: 0.99,
     source: 'https://ncert.nic.in/textbook.php?iesc1=3-15 (NCERT Class 9 Science)',
   },
+  // ==========================================
+  // CLASS 11 MATHEMATICS (NCERT Sets)
+  // ==========================================
+  {
+    question: 'Let A and B be two sets such that n(A) = 5 and n(B) = 6. If n(A ∩ B) = 3, what is n(A ∪ B)?',
+    answer: '8',
+    explanation: 'Using the formula n(A ∪ B) = n(A) + n(B) - n(A ∩ B), we get n(A ∪ B) = 5 + 6 - 3 = 8.',
+    subject: 'Mathematics',
+    topic: 'Sets',
+    chapter_reference: 'Chapter 1: Sets',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.95,
+    source: 'https://ncert.nic.in/textbook.php?jemh1=1-15 (NCERT Class 11 Maths)',
+  },
+  {
+    question: 'Find the domain of the function f(x) = √(x - 2).',
+    answer: '[2, ∞)',
+    explanation: 'For the square root function to be defined, the expression inside must be non-negative: x - 2 ≥ 0, which gives x ≥ 2.',
+    subject: 'Mathematics',
+    topic: 'Relations and Functions',
+    chapter_reference: 'Chapter 2: Relations and Functions',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.96,
+    source: 'https://ncert.nic.in/textbook.php?jemh1=2-15 (NCERT Class 11 Maths)',
+  },
+  {
+    question: 'Convert 40° into radians.',
+    answer: '2π/9 radians',
+    explanation: 'To convert degrees to radians, multiply by π/180: 40° × π/180 = 40π/180 = 2π/9 radians.',
+    subject: 'Mathematics',
+    topic: 'Trigonometric Functions',
+    chapter_reference: 'Chapter 3: Trigonometric Functions',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.94,
+    source: 'https://ncert.nic.in/textbook.php?jemh1=3-15 (NCERT Class 11 Maths)',
+  },
+  // ==========================================
+  // CLASS 11 PHYSICS (NCERT Sets)
+  // ==========================================
+  {
+    question: 'What is the SI unit of pressure?',
+    answer: 'Pascal (Pa)',
+    explanation: 'Pressure is defined as force per unit area. The SI unit of force is newton (N) and area is square meter (m²), so pressure has unit N/m² which is called pascal (Pa).',
+    subject: 'Physics',
+    topic: 'Units and Measurements',
+    chapter_reference: 'Chapter 2: Units and Measurements',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.97,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=2-15 (NCERT Class 11 Physics)',
+  },
+  {
+    question: 'A body travels half its total path in the last second of its fall from rest. Find the total time of fall.',
+    answer: '3.414 s',
+    explanation: 'Using equations of motion: s = gt²/2 for total distance and s/2 = g(t - 1)²/2 for distance in (t-1) seconds. Solving gives t = 2 + √2 ≈ 3.414 seconds.',
+    subject: 'Physics',
+    topic: 'Motion in a Straight Line',
+    chapter_reference: 'Chapter 3: Motion in a Straight Line',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'hard',
+    quality_score: 0.96,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=3-15 (NCERT Class 11 Physics)',
+  },
+  {
+    question: 'What is the work done by a force in displacing a body when the force acts at an angle of 90° to the direction of displacement?',
+    answer: 'Zero',
+    explanation: 'Work done W = F·d·cosθ. When θ = 90°, cos 90° = 0, therefore W = F·d·0 = 0.',
+    subject: 'Physics',
+    topic: 'Work, Energy and Power',
+    chapter_reference: 'Chapter 6: Work, Energy and Power',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.98,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=6-15 (NCERT Class 11 Physics)',
+  },
+  // ==========================================
+  // CLASS 11 CHEMISTRY (NCERT Sets)
+  // ==========================================
+  {
+    question: 'What is the number of significant figures in 0.002500?',
+    answer: '4',
+    explanation: 'Leading zeros are not significant. Trailing zeros after a decimal point are significant. So in 0.002500, the significant digits are 2, 5, 0, 0 which gives 4 significant figures.',
+    subject: 'Chemistry',
+    topic: 'Some Basic Concepts of Chemistry',
+    chapter_reference: 'Chapter 1: Some Basic Concepts of Chemistry',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.95,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=1-15 (NCERT Class 11 Chemistry)',
+  },
+  {
+    question: 'What is the azimuthal quantum number (l) for an electron in a 3p orbital?',
+    answer: '1',
+    explanation: 'For p orbitals, the azimuthal quantum number l = 1. The principal quantum number n = 3 for 3p orbital.',
+    subject: 'Chemistry',
+    topic: 'Structure of Atom',
+    chapter_reference: 'Chapter 2: Structure of Atom',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'medium',
+    quality_score: 0.94,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=2-15 (NCERT Class 11 Chemistry)',
+  },
+  {
+    question: 'Which of the following has the largest bond angle? H₂O, NH₃, CH₄',
+    answer: 'CH₄',
+    explanation: 'CH₄ has tetrahedral geometry with bond angle 109.5°. NH₃ has trigonal pyramidal geometry with bond angle 107° due to lone pair-bond pair repulsion. H₂O has bent geometry with bond angle 104.5° due to two lone pairs.',
+    subject: 'Chemistry',
+    topic: 'Chemical Bonding and Molecular Structure',
+    chapter_reference: 'Chapter 4: Chemical Bonding and Molecular Structure',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'medium',
+    quality_score: 0.93,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=4-15 (NCERT Class 11 Chemistry)',
+  },
+  // ==========================================
+  // CLASS 11 BIOLOGY (NCERT Sets)
+  // ==========================================
+  {
+    question: 'Which of the following is not a characteristic of living organisms?',
+    answer: 'Isolation',
+    explanation: 'Living organisms show growth, reproduction, metabolism, response to stimuli, etc. Isolation is not a biological characteristic; in fact, organisms interact with their environment and other organisms.',
+    subject: 'Biology',
+    topic: 'The Living World',
+    chapter_reference: 'Chapter 1: The Living World',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.96,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=1-15 (NCERT Class 11 Biology)',
+  },
+  {
+    question: 'What is the function of the ribosome in a cell?',
+    answer: 'Protein synthesis',
+    explanation: 'Ribosomes are the site of protein synthesis in cells. They read mRNA and assemble amino acids into polypeptide chains.',
+    subject: 'Biology',
+    topic: 'Cell: The Unit of Life',
+    chapter_reference: 'Chapter 8: Cell: The Unit of Life',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.97,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=8-15 (NCERT Class 11 Biology)',
+  },
+  {
+    question: 'During which phase of mitosis do chromosomes align at the equatorial plate?',
+    answer: 'Metaphase',
+    explanation: 'In metaphase of mitosis, chromosomes line up along the metaphase plate (equatorial plane) of the cell, attached to spindle fibers from opposite poles.',
+    subject: 'Biology',
+    topic: 'Cell Cycle and Cell Division',
+    chapter_reference: 'Chapter 10: Cell Cycle and Cell Division',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'medium',
+    quality_score: 0.95,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=10-15 (NCERT Class 11 Biology)',
+  },
+  {
+    question: 'Which enzyme is responsible for carbon fixation in C3 plants?',
+    answer: 'RuBisCO (Ribulose-1,5-bisphosphate carboxylase-oxygenase)',
+    explanation: 'RuBisCO catalyzes the first major step of carbon fixation in the Calvin cycle (C3 pathway), combining CO2 with ribulose 1,5-bisphosphate.',
+    subject: 'Biology',
+    topic: 'Photosynthesis in Higher Plants',
+    chapter_reference: 'Chapter 13: Photosynthesis in Higher Plants',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.97,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=13-15 (NCERT Class 11 Biology)',
+  },
+  {
+    question: 'What is the end product of glycolysis under aerobic conditions?',
+    answer: 'Pyruvic acid (Pyruvate)',
+    explanation: 'In glycolysis, one molecule of glucose is cleaved through 10 enzymatic reactions to yield two molecules of pyruvic acid, along with 2 ATP and 2 NADH.',
+    subject: 'Biology',
+    topic: 'Respiration in Plants',
+    chapter_reference: 'Chapter 14: Respiration in Plants',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'medium',
+    quality_score: 0.96,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=14-15 (NCERT Class 11 Biology)',
+  },
+  {
+    question: 'Which plant hormone is primarily responsible for apical dominance?',
+    answer: 'Auxin (Indole-3-acetic acid)',
+    explanation: 'Auxins produced at the shoot tip inhibit the growth of lateral (axillary) buds, a phenomenon called apical dominance.',
+    subject: 'Biology',
+    topic: 'Plant Growth and Development',
+    chapter_reference: 'Chapter 15: Plant Growth and Development',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.95,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=15-15 (NCERT Class 11 Biology)',
+  },
+  // Additional Class 11 Mathematics
+  {
+    question: 'What is the value of i^4k + i^(4k+1) + i^(4k+2) + i^(4k+3) for any integer k?',
+    answer: '0',
+    explanation: 'Since i^4k = 1, i^(4k+1) = i, i^(4k+2) = -1, and i^(4k+3) = -i, their sum is 1 + i - 1 - i = 0.',
+    subject: 'Mathematics',
+    topic: 'Complex Numbers and Quadratic Equations',
+    chapter_reference: 'Chapter 5: Complex Numbers',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'medium',
+    quality_score: 0.96,
+    source: 'https://ncert.nic.in/textbook.php?jemh1=5-15 (NCERT Class 11 Maths)',
+  },
+  {
+    question: 'In how many ways can 5 distinct books be arranged on a shelf?',
+    answer: '120 ways',
+    explanation: 'The number of permutations of 5 distinct items is 5! = 5 × 4 × 3 × 2 × 1 = 120.',
+    subject: 'Mathematics',
+    topic: 'Permutations and Combinations',
+    chapter_reference: 'Chapter 7: Permutations and Combinations',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.97,
+    source: 'https://ncert.nic.in/textbook.php?jemh1=7-15 (NCERT Class 11 Maths)',
+  },
+  {
+    question: 'What is the sum of an infinite geometric progression with first term a and common ratio r (|r| < 1)?',
+    answer: 'S_∞ = a / (1 - r)',
+    explanation: 'For an infinite GP where |r| < 1, as n → ∞, r^n → 0, yielding the sum formula S_∞ = a / (1 - r).',
+    subject: 'Mathematics',
+    topic: 'Sequences and Series',
+    chapter_reference: 'Chapter 9: Sequences and Series',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.98,
+    source: 'https://ncert.nic.in/textbook.php?jemh1=9-15 (NCERT Class 11 Maths)',
+  },
+  {
+    question: 'What is the derivative of sin(x) with respect to x from first principles?',
+    answer: 'cos(x)',
+    explanation: 'By the definition of derivative, lim(h→0) [sin(x + h) - sin(x)] / h = lim(h→0) [2 cos(x + h/2) sin(h/2)] / h = cos(x).',
+    subject: 'Mathematics',
+    topic: 'Limits and Derivatives',
+    chapter_reference: 'Chapter 13: Limits and Derivatives',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'medium',
+    quality_score: 0.96,
+    source: 'https://ncert.nic.in/textbook.php?jemh1=13-15 (NCERT Class 11 Maths)',
+  },
+  // Additional Class 11 Physics
+  {
+    question: 'What is the escape velocity of a body from the surface of the Earth?',
+    answer: '11.2 km/s',
+    explanation: 'Escape velocity is v_e = √(2gR) = √(2 × 9.8 × 6.4 × 10⁶) ≈ 11.2 km/s.',
+    subject: 'Physics',
+    topic: 'Gravitation',
+    chapter_reference: 'Chapter 8: Gravitation',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'medium',
+    quality_score: 0.97,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=8-15 (NCERT Class 11 Physics)',
+  },
+  {
+    question: 'State Hooke’s Law for an elastic material within its proportional limit.',
+    answer: 'Stress is directly proportional to Strain',
+    explanation: 'Hooke’s Law states that within elastic limit, Stress ∝ Strain, or Stress / Strain = Modulus of Elasticity (E).',
+    subject: 'Physics',
+    topic: 'Mechanical Properties of Solids',
+    chapter_reference: 'Chapter 9: Mechanical Properties of Solids',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.98,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=9-15 (NCERT Class 11 Physics)',
+  },
+  {
+    question: 'State the First Law of Thermodynamics in equation form.',
+    answer: 'ΔQ = ΔU + ΔW (Heat added = Increase in internal energy + Work done)',
+    explanation: 'The first law of thermodynamics is an expression of the principle of conservation of energy: ΔQ = ΔU + PΔV.',
+    subject: 'Physics',
+    topic: 'Thermodynamics',
+    chapter_reference: 'Chapter 12: Thermodynamics',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.98,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=12-15 (NCERT Class 11 Physics)',
+  },
+  // Additional Class 11 Chemistry
+  {
+    question: 'What is the shape and bond angle of methane (CH4) according to VSEPR theory?',
+    answer: 'Tetrahedral geometry with bond angle of 109.5°',
+    explanation: 'Carbon in CH4 is sp3 hybridized with 4 bonding pairs and 0 lone pairs, minimizing electron repulsion in a tetrahedral geometry.',
+    subject: 'Chemistry',
+    topic: 'Chemical Bonding and Molecular Structure',
+    chapter_reference: 'Chapter 4: Chemical Bonding',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.98,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=4-15 (NCERT Class 11 Chemistry)',
+  },
+  {
+    question: 'What is the conjugate acid of NH3 (ammonia)?',
+    answer: 'NH4+ (Ammonium ion)',
+    explanation: 'According to the Bronsted-Lowry concept, a conjugate acid is formed when a base accepts a proton (H+). NH3 + H+ → NH4+.',
+    subject: 'Chemistry',
+    topic: 'Equilibrium',
+    chapter_reference: 'Chapter 7: Equilibrium',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'basic',
+    quality_score: 0.97,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=7-15 (NCERT Class 11 Chemistry)',
+  },
+  {
+    question: 'What is the oxidation number of chromium in K2Cr2O7?',
+    answer: '+6',
+    explanation: '2(+1) + 2(Cr) + 7(-2) = 0 ⇒ 2 + 2(Cr) - 14 = 0 ⇒ 2(Cr) = 12 ⇒ Cr = +6.',
+    subject: 'Chemistry',
+    topic: 'Redox Reactions',
+    chapter_reference: 'Chapter 8: Redox Reactions',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'medium',
+    quality_score: 0.96,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=8-15 (NCERT Class 11 Chemistry)',
+  },
+  {
+    question: 'What type of isomerism is shown by but-1-ene and but-2-ene?',
+    answer: 'Position isomerism',
+    explanation: 'But-1-ene and but-2-ene have the same carbon skeleton but differ in the position of the double bond (C=C), making them position isomers.',
+    subject: 'Chemistry',
+    topic: 'Organic Chemistry: Some Basic Principles and Techniques',
+    chapter_reference: 'Chapter 12: Organic Chemistry',
+    curriculum: 'NCERT',
+    class_level: 11,
+    difficulty: 'medium',
+    quality_score: 0.95,
+    source: 'https://ncert.nic.in/textbook.php?iesc1=12-15 (NCERT Class 11 Chemistry)',
+  },
 ];
 
 async function seed() {
-  console.log(`Starting insertion of ${ncertQuestions.length} NCERT e-book curriculum questions into 'education'...`);
-  
-  const { data: insData, error: insErr } = await supabase.from('education').insert(ncertQuestions);
-  if (insErr) {
-    console.error('Insert error:', insErr.message);
-  } else {
-    console.log(`Successfully inserted ${ncertQuestions.length} NCERT questions!`);
+  console.log(`Checking existing questions in 'education' table...`);
+  const { data: existingRows, error: fetchErr } = await supabase
+    .from('education')
+    .select('question');
+
+  if (fetchErr) {
+    console.error('Fetch error:', fetchErr.message);
+    return;
   }
 
-  // Verify total count
-  const { count } = await supabase.from('education').select('*', { count: 'exact', head: true });
-  console.log(`Total live questions in Supabase 'education' table now: ${count}`);
+  const existingQuestionsSet = new Set((existingRows || []).map(r => r.question.trim().toLowerCase()));
+  const newQuestions = ncertQuestions.filter(q => !existingQuestionsSet.has(q.question.trim().toLowerCase()));
+
+  console.log(`Found ${existingRows?.length || 0} existing questions in DB. Inserting ${newQuestions.length} new questions...`);
+
+  if (newQuestions.length > 0) {
+    const { data: insData, error: insErr } = await supabase
+      .from('education')
+      .insert(newQuestions);
+
+    if (insErr) {
+      console.error('Insert error:', insErr.message);
+    } else {
+      console.log(`Successfully inserted ${newQuestions.length} questions into database!`);
+    }
+  } else {
+    console.log('All questions are already present in database.');
+  }
+
+  // Verify counts by class level
+  const { data: rows, error: countErr } = await supabase.from('education').select('class_level');
+  if (!countErr && rows) {
+    const counts = {};
+    rows.forEach(r => counts[r.class_level] = (counts[r.class_level] || 0) + 1);
+    console.log(`Total live questions in Supabase 'education' table now: ${rows.length}`, counts);
+  }
 }
 
 seed();

@@ -31,7 +31,7 @@ An intelligent tutoring system designed to help students learn through AI-powere
 ### Backend
 - **Runtime**: Node.js with Express.js
 - **Database**: Supabase (PostgreSQL) - planned integration
-- **Authentication**: Supabase Auth - planned integration
+- **Authentication**: Supabase Auth
 - **API**: RESTful API design
 
 ### AI Integration

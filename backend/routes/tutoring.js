@@ -1,7 +1,31 @@
 const express = require('express');
 
-function tutoringRoutes(supabase, openai) {
+const fetch = globalThis.fetch || require('node-fetch');
+
+function tutoringRoutes(supabase, openai, gemini) {
   const router = express.Router();
+
+  async function requireTeacher(req, res, next) {
+    const token = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (!token || !supabase) {
+      return res.status(401).json({ error: 'A signed-in teacher account is required.' });
+    }
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+      return res.status(401).json({ error: 'A valid signed-in teacher session is required.' });
+    }
+    let role = data.user.app_metadata?.role;
+    if (!role) {
+      const profile = await supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
+      if (profile.error) return res.status(503).json({ error: 'Could not verify teacher permissions.' });
+      role = profile.data?.role;
+    }
+    if (role !== 'teacher' && role !== 'admin') {
+      return res.status(403).json({ error: 'Teacher permissions are required for this action.' });
+    }
+    req.teacher = data.user;
+    return next();
+  }
 
   // Curated library of high-quality verified NCERT educational YouTube videos
   const YOUTUBE_CURRICULUM_LIBRARY = [
@@ -875,11 +899,9 @@ function tutoringRoutes(supabase, openai) {
     },
   ];
 
-  // Enhanced function to find the closest matching YouTube videos & direct search links
-  function findBestYouTubeVideo(questionText, subject = '', classLevel = '10') {
+  // Enhanced function to find the closest matching YouTube videos using YouTube Data API v3
+  async function findBestYouTubeVideo(questionText, subject = '', classLevel = '10') {
     const text = (questionText + ' ' + subject).toLowerCase();
-    const cleanTokens = text.replace(/[^a-zA-Z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
-
     const exactSearchQuery = `${questionText} NCERT Class ${classLevel} ${subject}`.trim();
     const directSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(exactSearchQuery)}`;
 
@@ -905,7 +927,63 @@ function tutoringRoutes(supabase, openai) {
       };
     }
 
-    // 2. Score all library videos by keyword match count and token overlap
+    // 2. Try YouTube Data API v3 if key is available
+    const youtubeApiKey = process.env.YOUTUBE_API_KEY;
+    if (youtubeApiKey && youtubeApiKey !== '') {
+      try {
+        const apiUrl = new URL('https://www.googleapis.com/youtube/v3/search');
+        apiUrl.searchParams.set('part', 'snippet');
+        apiUrl.searchParams.set('q', exactSearchQuery);
+        apiUrl.searchParams.set('type', 'video');
+        apiUrl.searchParams.set('maxResults', '8');
+        apiUrl.searchParams.set('key', youtubeApiKey);
+        apiUrl.searchParams.set('safeSearch', 'strict');
+        apiUrl.searchParams.set('videoEmbeddable', 'true');
+
+        const response = await fetch(apiUrl.toString());
+
+        if (!response.ok) {
+          throw new Error(`YouTube API request failed with status ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data && data.items && data.items.length > 0) {
+          // Process the API response to match our expected format
+          const best = data.items[0];
+          const related = data.items.slice(1, 4).map(item => ({
+            title: item.snippet.title,
+            channel: item.snippet.channelTitle,
+            videoUrl: `https://www.youtube.com/embed/${item.id.videoId}`,
+            watchUrl: `https://www.youtube.com/watch?v=${item.id.videoId}`,
+            topic: item.snippet.title, // Using title as topic fallback
+          }));
+
+          return {
+            hasVideo: true,
+            isCustomTeacherVideo: false,
+            title: best.snippet.title,
+            videoUrl: `https://www.youtube.com/embed/${best.id.videoId}`,
+            watchUrl: `https://www.youtube.com/watch?v=${best.id.videoId}`,
+            directSearchUrl,
+            channel: best.snippet.channelTitle,
+            topic: best.snippet.title, // Using title as topic fallback
+            subject: subject || 'General',
+            classLevel: parseInt(classLevel, 10) || 10,
+            attachedQuestions: [],
+            relatedVideos: related,
+          };
+        }
+      } catch (error) {
+        console.warn('[Tutoring] YouTube API call failed, falling back to library:', error.message);
+        // Fall through to library fallback
+      }
+    }
+
+    // 3. Fallback to original library-based search
+    const cleanTokens = text.replace(/[^a-zA-Z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+
+    // Score all library videos by keyword match count and token overlap
     const scoredList = YOUTUBE_CURRICULUM_LIBRARY.map(vid => {
       let score = 0;
       for (const kw of vid.keywords) {
@@ -979,7 +1057,6 @@ function tutoringRoutes(supabase, openai) {
       level = 'medium',
       userId = 'student-user-1',
       subject = 'General',
-      topic = '',
       classLevel = '10',
       curriculum = 'NCERT',
     } = req.body;
@@ -997,7 +1074,7 @@ function tutoringRoutes(supabase, openai) {
     const studentWeakTopics = studentPerf?.weakTopics || ['Parallel Resistors reciprocal calculation', 'Mirror Cartesian sign conventions'];
 
     // 1. Find accurate YouTube / Teacher video for the student's doubt
-    const youtubeVideo = findBestYouTubeVideo(qText, subject, cl);
+    const youtubeVideo = await findBestYouTubeVideo(qText, subject, cl);
 
     // 2. Generate detailed, prerequisite-scaffolded explanation
     let answer = null;
@@ -1246,82 +1323,94 @@ ${analogyText}
       userId = 'student-guest',
     } = req.body;
 
-    if (!question || !question.trim()) {
-      return res.status(400).json({ error: 'Homework question is required' });
+    const qText = typeof question === 'string' ? question.trim() : '';
+    const parsedClass = Number.parseInt(classLevel, 10);
+    const cleanSubject = typeof subject === 'string' ? subject.trim() : '';
+    if (!qText) {
+      return res.status(400).json({ error: 'Homework question is required.' });
+    }
+    if (qText.length > 10000) {
+      return res.status(400).json({ error: 'Homework question must be 10,000 characters or fewer.' });
+    }
+    if (!Number.isInteger(parsedClass) || parsedClass < 1 || parsedClass > 12) {
+      return res.status(400).json({ error: 'Class level must be between 1 and 12.' });
+    }
+    if (!cleanSubject || cleanSubject.length > 100) {
+      return res.status(400).json({ error: 'Select a valid subject.' });
+    }
+    if (!supabase) {
+      return res.status(503).json({ error: 'Curriculum database is unavailable. Please try again later.' });
     }
 
-    const qText = question.trim();
-    const cl = classLevel || '10';
-
-    let solution = null;
-    let provider = 'ncert-marking-scheme-engine';
-
-    // Try OpenAI with strict NCERT Marking Scheme Rubric
-    if (openai) {
-      try {
-        const systemPrompt = `You are an expert NCERT board examiner solving an assignment/homework numerical for a Class ${cl} student.
-Format the solution strictly and cleanly according to the official NCERT CBSE Marking Scheme Rubric:
-
-📌 Step 1: Given Data & To Find [½ to 1 Mark]
-📐 Step 2: Governing NCERT Formula / Principle [1 Mark]
-⚙️ Step 3: Step-by-Step Substitution & Calculation [1 to 2 Marks]
-🎯 Step 4: Boxed Final Answer with Standard SI Units [½ to 1 Mark]
-💡 Pro-Tip: Common Pitfall to Avoid on Board Exam
-
-Keep it crisp, clear, and easy to copy into a homework notebook. Do NOT write unnecessary long conversational filler.`;
-
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-4o',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: qText },
-          ],
-          temperature: 0.5,
-          max_tokens: 500,
-        });
-
-        if (completion?.choices?.[0]?.message?.content) {
-          solution = completion.choices[0].message.content;
-          provider = 'openai-marking-rubric';
-        }
-      } catch (_) {}
+    let rows;
+    try {
+      const { data, error } = await supabase
+        .from('education')
+        .select('question, answer, explanation, topic, chapter_reference, subject')
+        .eq('class_level', parsedClass)
+        .limit(500);
+      if (error) throw error;
+      rows = data || [];
+    } catch (error) {
+      console.error('[Homework] Curriculum database lookup failed:', error.message);
+      return res.status(503).json({ error: 'Could not load homework answers from the curriculum database.' });
     }
 
-    if (!solution) {
-      solution = `📌 Step 1: Given Data & To Determine [1 Mark]
-• Problem Statement: "${qText}"
-• Given: Identify all explicit values and boundary conditions.
-• To Find: Isolate the target variable required in the question.
+    const normalize = value => String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ');
+    const targetSubject = normalize(cleanSubject);
+    const query = normalize(qText);
+    const queryTokens = new Set(query.split(' ').filter(token => token.length >= 3));
+    const eligibleRows = rows.filter(row => {
+      const rowSubject = normalize(row.subject);
+      const relatedScience = parsedClass <= 10 &&
+        ['physics', 'chemistry', 'biology'].includes(targetSubject) &&
+        rowSubject === 'science';
+      return rowSubject === targetSubject || relatedScience ||
+        (['general science', 'science'].includes(targetSubject) &&
+          ['science', 'physics', 'chemistry', 'biology'].includes(rowSubject));
+    });
+    const match = eligibleRows.map(row => {
+      const normalizedQuestion = normalize(row.question);
+      const rowTokens = new Set(normalizedQuestion.split(' ').filter(token => token.length >= 3));
+      const overlap = [...rowTokens].filter(token => queryTokens.has(token)).length;
+      return {
+        row,
+        exact: Boolean(normalizedQuestion) && query === normalizedQuestion,
+        coverage: rowTokens.size ? overlap / rowTokens.size : 0,
+        precision: queryTokens.size ? overlap / queryTokens.size : 0,
+        tokenCount: rowTokens.size,
+      };
+    }).filter(item => (item.exact || (
+      item.tokenCount >= 5 && item.coverage >= 0.9 && item.precision >= 0.75
+    )) && (item.row.answer || item.row.explanation))
+      .sort((a, b) => Number(b.exact) - Number(a.exact) || b.coverage - a.coverage)[0];
 
-📐 Step 2: Governing NCERT Formula & Law [1 Mark]
-• State the fundamental equation: Standard formulation according to NCERT Class ${cl} ${subject} syllabus.
-• Reference: NCERT Textbook & S. Chand (Lakhmir Singh / RS Aggarwal).
-
-⚙️ Step 3: Step-by-Step Substitution & Calculation [2 Marks]
-• Substitute given numerical values into the formula.
-• Perform intermediate arithmetic systematically with proper algebraic signs.
-• Cross-verify dimensional sanity.
-
-🎯 Step 4: Final Answer & Statement [1 Mark]
-• Final Result: [Boxed value with standard SI Units]
-• Statement: State the final conclusion clearly for full rubric marks.
-
-💡 Examiner Tip:
-Always draw a box around your final answer and state units clearly to secure 100% of the allocated marking scheme points.`;
+    if (!match) {
+      return res.status(404).json({
+        error: 'No exact or strong matching homework question is stored for this class and subject. Try the wording of a curriculum question or ask your teacher to add it.',
+      });
     }
 
-    const voiceOverScript = `Here is your step by step homework solution following the NCERT marking scheme. Step 1: Write down the given values and what you need to find. Step 2: State the standard formula. Step 3: Substitute values and calculate. Step 4: Box your final answer with units. Let's walk through the numbers together.`;
-
+    const storedAnswer = String(match.row.answer || '').trim();
+    const storedExplanation = String(match.row.explanation || '').trim();
+    const solution = stepByStep
+      ? [storedAnswer && 'Answer: ' + storedAnswer, storedExplanation].filter(Boolean).join('\n\n')
+      : storedAnswer || storedExplanation;
     return res.json({
       question: qText,
       solution,
       answer: solution,
-      classLevel: cl,
-      subject,
-      provider,
-      youtubeVideo: { hasVideo: false }, // Explicitly NO YouTube video for homework help
-      voiceOverScript,
-      ncertMarkingScheme: 'CBSE / NCERT 4-Step Marking Rubric',
+      classLevel: parsedClass,
+      subject: cleanSubject,
+      provider: 'curriculum-database-exact-match',
+      curriculumReference: match.row.chapter_reference || match.row.topic || undefined,
+      youtubeVideo: { hasVideo: false },
+      voiceOverScript: solution,
+      ncertMarkingScheme: stepByStep ? 'Stored curriculum answer and explanation' : 'Stored curriculum answer',
       timestamp: new Date().toISOString(),
     });
   });
@@ -1337,7 +1426,7 @@ Always draw a box around your final answer and state units clearly to secure 100
     });
   });
 
-  router.post('/upload-video-solution', async (req, res) => {
+  router.post('/upload-video-solution', requireTeacher, async (req, res) => {
     const {
       doubtId,
       questionPattern,
@@ -1435,7 +1524,7 @@ Always draw a box around your final answer and state units clearly to secure 100
     return res.json({ total: 0, questions: [], source: 'fallback' });
   });
 
-  router.post('/questions/add', async (req, res) => {
+  router.post('/questions/add', requireTeacher, async (req, res) => {
     const {
       question,
       answer,
@@ -1471,18 +1560,23 @@ Always draw a box around your final answer and state units clearly to secure 100
       source: source || 'Teacher Command Center (NCERT Marking Scheme)',
     };
 
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.from('education').insert([newRow]).select();
-        if (!error && data) return res.json({ message: 'Question with NCERT Marking Scheme added to live database!', question: data[0] });
-      } catch (err) {
-        return res.status(500).json({ error: err.message });
-      }
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase is not configured for the question database.' });
     }
-    return res.json({ message: 'Question saved in local store.', question: newRow });
+    try {
+      const { data, error } = await supabase.from('education').insert([newRow]).select();
+      if (error) {
+        console.error('Could not add teacher question:', error.message);
+        return res.status(503).json({ error: 'Could not save the question to the database.' });
+      }
+      return res.status(201).json({ message: 'Question with NCERT Marking Scheme added to live database!', question: data[0] });
+    } catch (err) {
+      console.error('Could not add teacher question:', err.message);
+      return res.status(503).json({ error: 'Could not save the question to the database.' });
+    }
   });
 
-  router.put('/questions/edit', async (req, res) => {
+  router.put('/questions/edit', requireTeacher, async (req, res) => {
     const {
       originalQuestion,
       updatedQuestion,
@@ -1497,40 +1591,56 @@ Always draw a box around your final answer and state units clearly to secure 100
 
     if (!originalQuestion) return res.status(400).json({ error: 'Original question identifier required.' });
 
-    if (supabase) {
-      try {
-        const updatePayload = {
-          quality_score: 1.0,
-        };
-        if (updatedQuestion) updatePayload.question = updatedQuestion.trim();
-        if (updatedAnswer) updatePayload.answer = updatedAnswer.trim();
-        if (updatedExplanation) updatePayload.explanation = updatedExplanation.trim();
-        if (topic) updatePayload.topic = topic.trim();
-        if (chapter_reference) updatePayload.chapter_reference = chapter_reference.trim();
-        if (difficulty) updatePayload.difficulty = difficulty;
-
-        const { data, error } = await supabase.from('education').update(updatePayload).eq('question', originalQuestion).select();
-        if (!error) return res.json({ message: 'Solution improved according to NCERT Marking Scheme & updated in live database!', updated: data });
-      } catch (err) {
-        return res.status(500).json({ error: err.message });
-      }
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase is not configured for the question database.' });
     }
-    return res.json({ message: 'Question and solution updated successfully.' });
+    try {
+      const updatePayload = { quality_score: 1.0 };
+      if (updatedQuestion) updatePayload.question = updatedQuestion.trim();
+      if (updatedAnswer) updatePayload.answer = updatedAnswer.trim();
+      if (updatedExplanation) updatePayload.explanation = updatedExplanation.trim();
+      if (topic) updatePayload.topic = topic.trim();
+      if (chapter_reference) updatePayload.chapter_reference = chapter_reference.trim();
+      if (difficulty) updatePayload.difficulty = difficulty;
+
+      const { data, error } = await supabase.from('education')
+        .update(updatePayload)
+        .eq('question', originalQuestion)
+        .select();
+      if (error) {
+        console.error('Could not update teacher question:', error.message);
+        return res.status(503).json({ error: 'Could not update the question in the database.' });
+      }
+      if (!data?.length) return res.status(404).json({ error: 'Question not found.' });
+      return res.json({ message: 'Solution improved according to NCERT Marking Scheme & updated in live database!', updated: data });
+    } catch (err) {
+      console.error('Could not update teacher question:', err.message);
+      return res.status(503).json({ error: 'Could not update the question in the database.' });
+    }
   });
 
-  router.post('/questions/delete', async (req, res) => {
+  router.post('/questions/delete', requireTeacher, async (req, res) => {
     const { question } = req.body;
     if (!question) return res.status(400).json({ error: 'Question text required.' });
 
-    if (supabase) {
-      try {
-        const { error } = await supabase.from('education').delete().eq('question', question);
-        if (!error) return res.json({ message: `Question deleted from live database.` });
-      } catch (err) {
-        return res.status(500).json({ error: err.message });
-      }
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase is not configured for the question database.' });
     }
-    return res.json({ message: 'Question removed.' });
+    try {
+      const { data, error } = await supabase.from('education')
+        .delete()
+        .eq('question', question)
+        .select('question');
+      if (error) {
+        console.error('Could not delete teacher question:', error.message);
+        return res.status(503).json({ error: 'Could not delete the question from the database.' });
+      }
+      if (!data?.length) return res.status(404).json({ error: 'Question not found.' });
+      return res.json({ message: 'Question deleted from live database.' });
+    } catch (err) {
+      console.error('Could not delete teacher question:', err.message);
+      return res.status(503).json({ error: 'Could not delete the question from the database.' });
+    }
   });
 
   return router;

@@ -71,6 +71,7 @@ const DoubtSolving: React.FC = () => {
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
   const [explanationLevel, setExplanationLevel] = useState('medium');
   const [teacherVideo, setTeacherVideo] = useState<TeacherVideoInfo | null>(null);
   const [prerequisites, setPrerequisites] = useState<string[]>([]);
@@ -79,20 +80,7 @@ const DoubtSolving: React.FC = () => {
   const [subject, setSubject] = useState('Physics');
   const [classLevel, setClassLevel] = useState('10');
 
-  const [history, setHistory] = useState<Array<{ question: string; answer: string; level: string; timestamp: string }>>([
-    {
-      question: 'Explain Snell’s Law and refractive index with simple steps',
-      answer: 'Snell’s Law states: sin(i) / sin(r) = Constant (Refractive Index n). When light moves between media, the ratio of sines of incidence and refraction angles remains constant.',
-      level: 'medium',
-      timestamp: 'Today',
-    },
-    {
-      question: 'How do plants convert sunlight into food during photosynthesis?',
-      answer: '6CO₂ + 6H₂O + Sunlight → C₆H₁₂O₆ (Glucose) + 6O₂. Chlorophyll absorbs light energy and splits water into hydrogen and oxygen.',
-      level: 'basic',
-      timestamp: 'Yesterday'
-    }
-  ]);
+  const [history, setHistory] = useState<Array<{ question: string; answer: string; level: string; timestamp: string }>>([]);
 
   // Helper function to convert YouTube URL to embed format
   const convertYouTubeUrlToEmbed = (url: string | undefined): string | undefined => {
@@ -131,16 +119,24 @@ const DoubtSolving: React.FC = () => {
 
     setLoading(true);
     setAnswer(null);
+    setRequestError(null);
     setTeacherVideo(null);
     setPrerequisites([]);
     setPracticeQuestions([]);
     setRevealedAnswers({});
 
+    const userEmail = localStorage.getItem('user_email');
+    if (!userEmail) {
+      setRequestError('Sign in to use the doubt solver.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await tutoringAPI.solveDoubt(
         question.trim(),
         explanationLevel,
-        'student-user-1',
+        userEmail,
         { subject, classLevel }
       );
 
@@ -165,61 +161,13 @@ const DoubtSolving: React.FC = () => {
         return;
       }
     } catch (err) {
-      console.warn('Backend doubt solving error:', err);
+      console.error('Backend doubt solving failed:', err);
+      setRequestError('The doubt solver could not reach the backend. Please try again.');
     }
-
-    // Dynamic fallback — question-aware, uses actual question content
-    const searchQuery = encodeURIComponent(`${question} NCERT Class ${classLevel} ${subject} explanation`);
-    const ytSearchUrl = `https://www.youtube.com/results?search_query=${searchQuery}`;
-
-    const fallbackAns = `🎓 Explanation for: "${question}"
-📖 Subject: Class ${classLevel} ${subject} | NCERT Curriculum
-
-🔹 Core Concept:
-This question covers an important topic in Class ${classLevel} ${subject}. Let's break it down step by step using NCERT and S. Chand references.
-
-🔹 Step-by-Step Approach:
-1. Identify the given data and what the question is asking (Given: ?, To Find: ?)
-2. Recall the governing NCERT formula or law for "${question.slice(0, 50)}..."
-3. Substitute known values carefully with correct SI units
-4. Verify your answer dimensionally
-
-🔹 Board Exam Strategy:
-• State the formula clearly in the first step — this alone earns 1 mark
-• Show every substitution step — partial marks are awarded for correct methodology
-• Always include SI units in your final boxed answer
-
-📚 NCERT & Reference Sources:
-• NCERT Class ${classLevel} ${subject} Official e-Book: https://ncert.nic.in/textbook.php
-• DIKSHA National Learning Portal: https://diksha.gov.in/explore
-• S. Chand / Lakhmir Singh & RS Aggarwal Reference: https://www.schandpublishing.com
-
-🔍 Click the YouTube Search button below to find videos specifically matching your question.`;
-
-    setAnswer(fallbackAns);
-    setPrerequisites([]);
-    setPracticeQuestions([]);
-    setTeacherVideo({
-      hasVideo: true,
-      videoUrl: undefined,
-      directSearchUrl: ytSearchUrl,
-      watchUrl: ytSearchUrl,
-      title: `YouTube Search: "${question.slice(0, 60)}..." (Class ${classLevel} ${subject})`,
-      channel: 'Search NCERT / Khan Academy / Physics Wallah / Vedantu',
-      topic: `Class ${classLevel} ${subject} — ${question.slice(0, 40)}`,
-      notes: 'Click "Search YouTube" below to find videos specifically for your question.',
-    });
-    setLoading(false);
+    finally {
+      setLoading(false);
+    }
   };
-
-  const sampleDoubts = [
-    { text: "Explain Snell's law and refractive index with ray diagram", subj: 'Physics' },
-    { text: "How does Ohm's law apply in series and parallel resistor circuits?", subj: 'Physics' },
-    { text: "Explain the mechanism of photosynthesis and light reactions in chloroplasts", subj: 'Biology' },
-    { text: "How does the human nephron filter blood and form urine?", subj: 'Biology' },
-    { text: "State the quadratic formula and derive the discriminant nature of roots", subj: 'Mathematics' },
-    { text: "Explain esterification reaction and saponification in carbon compounds", subj: 'Chemistry' },
-  ];
 
   return (
     <Box sx={{ pb: 8, maxWidth: 1140, mx: 'auto', px: { xs: 1, sm: 2 } }}>
@@ -231,6 +179,7 @@ This question covers an important topic in Class ${classLevel} ${subject}. Let's
           Ask any concept, derivation, or complex question. Get in-depth explanations with verified NCERT/S. Chand citations, automatic YouTube video lectures, and AI voiceover narration.
         </Typography>
       </Box>
+      {requestError && <Alert severity="error" sx={{ mb: 2 }}>{requestError}</Alert>}
 
       {/* Subject Selector Bar */}
       <Stack direction="row" spacing={1.5} sx={{ mb: 3, flexWrap: 'wrap', gap: 1 }}>
@@ -261,28 +210,6 @@ This question covers an important topic in Class ${classLevel} ${subject}. Let's
           ))}
         </Box>
       </Stack>
-
-      {/* Quick Sample Doubts */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569', display: 'block', mb: 1 }}>
-          💡 Try asking these common NCERT & S. Chand board doubts:
-        </Typography>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-          {sampleDoubts.map((sample, idx) => (
-            <Chip
-              key={idx}
-              label={sample.text}
-              size="small"
-              onClick={() => {
-                setQuestion(sample.text);
-                setSubject(sample.subj);
-              }}
-              clickable
-              sx={{ bgcolor: '#f1f5f9', '&:hover': { bgcolor: '#e2e8f0' }, fontSize: '0.8rem' }}
-            />
-          ))}
-        </Stack>
-      </Box>
 
       <Grid container spacing={3}>
         {/* Main Left Column: Form & Solution */}

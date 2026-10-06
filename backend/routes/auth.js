@@ -1,364 +1,235 @@
 const express = require('express');
-const rankManager = require('../services/rankManager');
+const { randomBytes } = require('crypto');
+const { createClient } = require('@supabase/supabase-js');
+
+const FACULTY_ACCESS_CODE = process.env.FACULTY_ACCESS_CODE || '123456';
+const REAL_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 function authRoutes(supabase) {
   const router = express.Router();
+  const supabaseAuth = process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY
+    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+    : null;
 
-  // Regex for strict real email address validation
-  const REAL_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-
-  // Real registered faculty & administrator accounts
-  const registeredTeachers = [
-    {
-      id: 'teacher_101',
-      email: 'teacher@school.edu',
-      password: 'TeacherPassword#2026',
-      name: 'Dr. Sarah Mukherjee (Senior Faculty)',
-      role: 'teacher',
-      department: 'Science & Mathematics',
-      dateJoined: '2025-01-10',
-    },
-    {
-      id: 'teacher_102',
-      email: 'principal@school.edu',
-      password: 'AdminPassword#2026',
-      name: 'Prof. Rajesh Sharma (Head of Curriculum)',
-      role: 'teacher',
-      department: 'Academic Administration',
-      dateJoined: '2024-06-15',
-    },
-  ];
-
-  // Helper function to find a user by email across all registered sources
-  function findRegisteredUser(email) {
-    if (!email) return null;
-    const cleanEmail = email.trim().toLowerCase();
-
-    // 1. Check registered faculty/teachers
-    const teacher = registeredTeachers.find(t => t.email.toLowerCase() === cleanEmail);
-    if (teacher) {
-      return {
-        id: teacher.id,
-        email: teacher.email,
-        password: teacher.password,
-        name: teacher.name,
-        role: 'teacher',
-        department: teacher.department,
-      };
+  async function getRole(user) {
+    if (['student', 'teacher', 'admin'].includes(user.app_metadata?.role)) {
+      return user.app_metadata.role;
     }
+    if (!supabase) return user.app_metadata?.role || 'student';
 
-    // 2. Check registered students from studentDirectory (including teacher-enrolled students)
-    const allStudents = rankManager.getAllStudents()?.students || [];
-    const student = allStudents.find(s => s.email && s.email.toLowerCase() === cleanEmail);
-    if (student) {
-      return {
-        id: student.id,
-        studentId: student.studentId,
-        email: student.email,
-        password: student.temporaryPassword || student.password,
-        name: student.name,
-        role: 'student',
-        classLevel: student.classLevel,
-        section: student.section,
-        status: student.status,
-        removalReason: student.removalReason,
-      };
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('role, full_name, grade_level')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (error) {
+      console.error('Could not load user profile:', error.message);
+      throw new Error('Could not load the account profile.');
     }
-
-    return null;
+    return data || { role: user.app_metadata?.role || 'student' };
   }
 
-  // =========================================================================
-  // POST /api/auth/login - Real Email & Password Authentication
-  // =========================================================================
+  function readBearerToken(req) {
+    return req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+  }
+
   router.post('/login', async (req, res) => {
-    const { email, password } = req.body;
-
-    // 1. Verify presence
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
     if (!email || !password) {
-      return res.status(400).json({ message: 'Both real email address and password are required.' });
+      return res.status(400).json({ message: 'Both email and password are required.' });
+    }
+    if (!REAL_EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ message: 'Enter a valid email address.' });
+    }
+    if (!supabase || !supabaseAuth) {
+      return res.status(503).json({ message: 'Supabase authentication is not configured.' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanPassword = password.trim();
-
-    // 2. Enforce real email address format
-    if (!REAL_EMAIL_REGEX.test(cleanEmail)) {
-      return res.status(400).json({
-        message: 'Invalid email address format. Please enter a valid email (e.g., student@school.edu or user@domain.com).',
-      });
-    }
-
-    // 3. Try Supabase Auth if available
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: cleanEmail,
-          password: cleanPassword,
-        });
-
-        if (!error && data?.user) {
-          let role = cleanEmail.includes('teacher') ? 'teacher' : 'student';
-          let name = cleanEmail.split('@')[0];
-
-          try {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', data.user.id)
-              .single();
-            if (profile?.role) role = profile.role;
-            if (profile?.name) name = profile.name;
-          } catch (_) {}
-
-          return res.json({
-            message: 'Authentication successful',
-            token: data.session?.access_token || `jwt_${data.user.id}_${Date.now()}`,
-            user: {
-              id: data.user.id,
-              email: data.user.email,
-              name,
-              role,
-            },
-          });
-        }
-      } catch (sbErr) {
-        console.warn('Supabase auth verify notice:', sbErr.message);
+    try {
+      const { data, error } = await supabaseAuth.auth.signInWithPassword({ email, password });
+      if (error || !data?.user || !data.session?.access_token) {
+        return res.status(401).json({ message: 'Invalid email or password. Confirm the email address if required.' });
       }
-    }
-
-    // 4. Verify against Registered User Database (Teachers & Students)
-    const user = findRegisteredUser(cleanEmail);
-
-    if (!user) {
-      // Auto-provision genuine account on first sign-in attempt
-      const isTeacherEmail = cleanEmail.includes('teacher') || cleanEmail.includes('faculty') || cleanEmail.includes('admin') || cleanEmail.includes('prof');
-      const role = isTeacherEmail ? 'teacher' : 'student';
-      const cleanName = cleanEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-
-      let createdUser = null;
-      if (role === 'teacher') {
-        createdUser = {
-          id: `teacher_${Date.now()}`,
-          email: cleanEmail,
-          password: cleanPassword,
-          name: `${cleanName} (Faculty)`,
-          role: 'teacher',
-          department: 'Academic Faculty',
-          dateJoined: new Date().toISOString().split('T')[0],
-        };
-        registeredTeachers.push(createdUser);
-      } else {
-        createdUser = rankManager.addStudent({
-          name: cleanName,
-          email: cleanEmail,
-          password: cleanPassword,
-          classLevel: 10,
-          section: 'Section A (Maths & Science)',
-          initialRemark: 'Enrolled via authentic email login.',
+      const profile = await getRole(data.user);
+      let role = typeof profile === 'string' ? profile : profile.role;
+      if (role !== 'teacher' && role !== 'admin') role = 'student';
+      const roster = role === 'student'
+        ? await supabase.from('student_roster')
+          .select('student_id, full_name, class_level, section, status, removal_reason')
+          .eq('auth_user_id', data.user.id)
+          .maybeSingle()
+        : { data: null, error: null };
+      if (roster.error) {
+        console.error('Student roster lookup failed:', roster.error.message);
+        return res.status(503).json({ message: 'Could not load the signed-in student account.' });
+      }
+      if (roster.data?.status === 'removed') {
+        return res.status(403).json({
+          message: `Account is inactive: "${roster.data.removal_reason || 'Contact course faculty'}".`,
         });
-        createdUser.role = 'student';
+      }
+      if (role === 'student' && !roster.data) {
+        return res.status(403).json({ message: 'This student account is not in the active roster.' });
       }
 
-      const token = `auth_token_${createdUser.id}_${Buffer.from(cleanEmail).toString('base64')}_${Date.now()}`;
+      const name = (typeof profile === 'object' && profile.full_name) ||
+        roster.data?.full_name ||
+        data.user.user_metadata?.name ||
+        email.split('@')[0];
       return res.json({
-        message: 'Account verified and signed in successfully!',
-        token,
+        message: 'Login successful.',
+        token: data.session.access_token,
         user: {
-          id: createdUser.id,
-          studentId: createdUser.studentId,
-          email: createdUser.email,
-          name: createdUser.name,
-          role: createdUser.role || role,
-          classLevel: createdUser.classLevel || 10,
-          section: createdUser.section || 'Section A',
+          id: data.user.id,
+          email,
+          name,
+          role,
+          classLevel: roster.data?.class_level || profile.grade_level,
+          section: roster.data?.section,
+          studentId: roster.data?.student_id,
         },
       });
+    } catch (error) {
+      console.error('Supabase login failed:', error.message);
+      return res.status(503).json({ message: error.message || 'Could not verify the account.' });
     }
-
-    // Check account status
-    if (user.status === 'removed') {
-      return res.status(403).json({
-        message: `Account is inactive / on notice: "${user.removalReason || 'Contact course faculty'}".`,
-      });
-    }
-
-    // Check password match for existing account
-    if (user.password && user.password !== cleanPassword) {
-      return res.status(401).json({
-        message: 'Incorrect password. Please verify your credentials and try again.',
-      });
-    }
-
-    // Generate secure session token
-    const token = `auth_token_${user.id}_${Buffer.from(user.email).toString('base64')}_${Date.now()}`;
-
-    return res.json({
-      message: 'Login successful',
-      token,
-      user: {
-        id: user.id,
-        studentId: user.studentId,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        classLevel: user.classLevel || 10,
-        section: user.section || 'Section A',
-      },
-    });
   });
 
-  // =========================================================================
-  // POST /api/auth/signup - Real User Account Registration
-  // =========================================================================
   router.post('/signup', async (req, res) => {
-    const { email, password, name, role = 'student', classLevel = 10, section = 'Section A' } = req.body;
+    const { email: inputEmail, password: inputPassword, name: inputName, role = 'student', classLevel = 10, section = 'Section A' } = req.body || {};
+    const email = String(inputEmail || '').trim().toLowerCase();
+    const password = String(inputPassword || '');
+    const name = String(inputName || '').trim();
+    const parsedClassLevel = Number.parseInt(classLevel, 10);
 
     if (!email || !password || !name) {
-      return res.status(400).json({ message: 'Full name, valid email address, and password are required.' });
+      return res.status(400).json({ message: 'Full name, email, and password are required.' });
+    }
+    if (!REAL_EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ message: 'Enter a valid email address.' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters long.' });
+    }
+    if (role !== 'student' && role !== 'teacher') {
+      return res.status(400).json({ message: 'Choose a valid account role.' });
+    }
+    if (role === 'teacher' && req.body?.facultyCode !== FACULTY_ACCESS_CODE) {
+      return res.status(403).json({ message: 'The faculty access code is invalid.' });
+    }
+    if (role === 'student' && (!Number.isInteger(parsedClassLevel) || parsedClassLevel < 1 || parsedClassLevel > 12)) {
+      return res.status(400).json({ message: 'Student class must be between 1 and 12.' });
+    }
+    if (!supabase?.auth?.admin) {
+      return res.status(503).json({ message: 'Supabase service-role authentication is required for account registration.' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanPassword = password.trim();
-    const cleanName = name.trim();
-
-    // 1. Validate real email format
-    if (!REAL_EMAIL_REGEX.test(cleanEmail)) {
-      return res.status(400).json({
-        message: 'Invalid email format. Please enter a valid real email address (e.g. name@domain.com).',
+    let user;
+    try {
+      const created = await supabase.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { name, classLevel: parsedClassLevel, section },
+        app_metadata: { role },
       });
-    }
-
-    // 2. Validate password strength
-    if (cleanPassword.length < 6) {
-      return res.status(400).json({
-        message: 'Password must be at least 6 characters long.',
-      });
-    }
-
-    // 3. Check for existing registered account
-    const existing = findRegisteredUser(cleanEmail);
-    if (existing) {
-      return res.status(400).json({
-        message: 'An account with this email address is already registered. Please sign in.',
-      });
-    }
-
-    // 4. Try Supabase Auth SignUp if configured
-    let supabaseUserId = null;
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.auth.signUp({
-          email: cleanEmail,
-          password: cleanPassword,
-          options: {
-            data: { name: cleanName, role, classLevel },
-          },
-        });
-        if (!error && data?.user) {
-          supabaseUserId = data.user.id;
-          try {
-            await supabase.from('profiles').insert([
-              { id: data.user.id, email: cleanEmail, name: cleanName, role, class_level: classLevel },
-            ]);
-          } catch (_) {}
-        }
-      } catch (sbErr) {
-        console.warn('Supabase signup notice:', sbErr.message);
-      }
-    }
-
-    // 5. Register in local persistent system
-    let createdUser = null;
-    if (role === 'teacher') {
-      createdUser = {
-        id: supabaseUserId || `teacher_${Date.now()}`,
-        email: cleanEmail,
-        password: cleanPassword,
-        name: cleanName,
-        role: 'teacher',
-        department: 'Academic Faculty',
-        dateJoined: new Date().toISOString().split('T')[0],
-      };
-      registeredTeachers.push(createdUser);
-    } else {
-      // Register new student in rankManager
-      createdUser = rankManager.addStudent({
-        id: supabaseUserId,
-        name: cleanName,
-        email: cleanEmail,
-        password: cleanPassword,
-        classLevel: parseInt(classLevel, 10) || 10,
-        section,
-        initialRemark: 'Self-registered student account.',
-      });
-      createdUser.role = 'student';
-    }
-
-    const token = `auth_token_${createdUser.id}_${Buffer.from(cleanEmail).toString('base64')}_${Date.now()}`;
-
-    return res.status(201).json({
-      message: 'Account successfully registered and verified!',
-      token,
-      user: {
-        id: createdUser.id,
-        email: createdUser.email,
-        name: createdUser.name,
-        role: createdUser.role || role,
-        classLevel: createdUser.classLevel,
-        section: createdUser.section,
-      },
-    });
-  });
-
-  // =========================================================================
-  // GET /api/auth/me - Verify Active Authenticated Session
-  // =========================================================================
-  router.get('/me', (req, res) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'No authorization token provided.' });
-    }
-
-    const token = authHeader.split(' ')[1];
-    // Extract email from token structure if present
-    const parts = token.split('_');
-    if (parts.length >= 4) {
-      try {
-        const decodedEmail = Buffer.from(parts[3], 'base64').toString('utf8');
-        const user = findRegisteredUser(decodedEmail);
-        if (user) {
-          return res.json({
-            user: {
-              id: user.id,
-              studentId: user.studentId,
-              email: user.email,
-              name: user.name,
-              role: user.role,
-              classLevel: user.classLevel,
-              section: user.section,
-            },
+      if (created.error || !created.data?.user) {
+        const duplicateEmail = created.error?.code === 'email_exists' ||
+          created.error?.code === 'user_already_exists' ||
+          /already\s+(been\s+)?(registered|exists)/i.test(created.error?.message || '');
+        if (duplicateEmail) {
+          return res.status(409).json({
+            message: 'An account with this email address is already registered. Sign in with that account instead.',
           });
         }
-      } catch (_) {}
+        return res.status(409).json({ message: created.error?.message || 'Could not create this account.' });
+      }
+      user = created.data.user;
+
+      const profile = await supabase.from('profiles').upsert({
+        id: user.id,
+        full_name: name,
+        role,
+        grade_level: role === 'student' ? parsedClassLevel : null,
+      }, { onConflict: 'id' });
+      if (profile.error && !['PGRST205', '42P01'].includes(profile.error.code)) {
+        throw profile.error;
+      }
+      if (profile.error) {
+        console.warn('Profiles table is missing; using Supabase Auth app metadata for account roles.');
+      }
+
+      let studentId;
+      if (role === 'student') {
+        studentId = `STU-${randomBytes(4).toString('hex').toUpperCase()}`;
+        const roster = await supabase.from('student_roster').insert({
+          auth_user_id: user.id,
+          student_id: studentId,
+          full_name: name,
+          email,
+          class_level: parsedClassLevel,
+          section: String(section || 'Section A').trim(),
+        });
+        if (roster.error) throw roster.error;
+      }
+
+      const signedIn = await supabaseAuth.auth.signInWithPassword({ email, password });
+      if (signedIn.error || !signedIn.data?.session?.access_token) {
+        throw signedIn.error || new Error('Could not create an authenticated session.');
+      }
+      return res.status(201).json({
+        message: 'Account created successfully.',
+        token: signedIn.data.session.access_token,
+        user: {
+          id: user.id,
+          email,
+          name,
+          role,
+          classLevel: role === 'student' ? parsedClassLevel : undefined,
+          section: role === 'student' ? section : undefined,
+          studentId,
+        },
+      });
+    } catch (error) {
+      if (user) {
+        const rollback = await supabase.auth.admin.deleteUser(user.id);
+        if (rollback.error) console.error('Could not roll back failed account registration:', rollback.error.message);
+      }
+      console.error('Supabase registration failed:', error.message);
+      return res.status(503).json({ message: 'Could not save the account profile or roster record.' });
     }
-
-    return res.json({
-      user: {
-        id: 'usr_authenticated',
-        name: 'Authenticated User',
-        role: 'student',
-      },
-    });
   });
 
-  // =========================================================================
-  // POST /api/auth/logout - Session Termination
-  // =========================================================================
-  router.post('/logout', (req, res) => {
-    return res.json({ message: 'Successfully signed out.' });
+  router.get('/me', async (req, res) => {
+    const token = readBearerToken(req);
+    if (!token || !supabase) {
+      return res.status(401).json({ message: 'A valid Supabase sign-in is required.' });
+    }
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+      return res.status(401).json({ message: 'Your Supabase session is invalid or expired.' });
+    }
+    try {
+      const profile = await getRole(data.user);
+      const role = typeof profile === 'string' ? profile : profile.role;
+      return res.json({
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          name: (typeof profile === 'object' && profile.full_name) || data.user.user_metadata?.name || data.user.email?.split('@')[0],
+          role: role === 'teacher' || role === 'admin' ? role : 'student',
+          classLevel: typeof profile === 'object' ? profile.grade_level : undefined,
+        },
+      });
+    } catch (profileError) {
+      return res.status(503).json({ message: profileError.message });
+    }
   });
 
+  router.post('/logout', (_req, res) => res.json({ message: 'Successfully signed out.' }));
   return router;
 }
 

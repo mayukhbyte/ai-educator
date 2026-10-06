@@ -2,14 +2,14 @@ import axios from 'axios';
 
 // Create axios instance with base URL
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
 });
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    if (token && config.headers) {
+    if (token && config.headers && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -95,6 +95,10 @@ export const examPrepAPI = {
   publishMonthlyTest: (data) => api.post('/exam-prep/monthly-test/publish', data),
   submitMonthlyTest: (data) => api.post('/exam-prep/monthly-test/submit', data),
   getTeacherFeedback: () => api.get('/exam-prep/teacher-feedback'),
+  getStudentTestSubmissions: (userId) =>
+    api.get('/exam-prep/monthly-test/submissions', { params: { userId } }),
+  saveTeacherFeedback: (submissionId, feedback) =>
+    api.patch(`/exam-prep/teacher-feedback/${encodeURIComponent(submissionId)}`, { feedback }),
   organizeTargetedTest: (data) => api.post('/exam-prep/organize-targeted-test', data),
 };
 
